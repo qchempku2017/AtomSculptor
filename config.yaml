@@ -1,0 +1,5 @@
+# application configuration (YAML format)
+# you can also override any of these values with environment variables
+
+# model used by the planner agent
+PLANNER_MODEL: "openai/qwen3-max"
