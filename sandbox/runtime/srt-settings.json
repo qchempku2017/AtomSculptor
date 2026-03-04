@@ -1,0 +1,13 @@
+{
+  "network": {
+    "allowedDomains": [],
+    "deniedDomains": []
+  },
+  "filesystem": {
+    "denyRead": [],
+    "allowWrite": [
+      "/home/notfish/dev/AtomSculptor/sandbox/runtime"
+    ],
+    "denyWrite": []
+  }
+}

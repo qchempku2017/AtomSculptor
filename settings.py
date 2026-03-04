@@ -31,6 +31,12 @@ class Settings:
         self.PLANNER_MODEL = os.environ.get(
             "PLANNER_MODEL", self._data.get("PLANNER_MODEL", "openai/qwen3-max")
         )
+        self.SANDBOX_DIR = os.environ.get(
+            "SANDBOX_DIR", self._data.get("SANDBOX_DIR", "sandbox/runtime")
+        )
+
+    def get_sandbox_client_kwargs(self) -> Dict[str, Any]:
+        return {"root_dir": self.SANDBOX_DIR}
 
 
 # a single, project-wide settings object that can be imported anywhere

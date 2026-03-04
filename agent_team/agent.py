@@ -1,8 +1,8 @@
 from agent_team.agents.planner import planner
-from sandbox import AgentSandbox
+from sandbox import Sandbox
 from settings import settings
 
-sandbox = AgentSandbox(**settings.get_sandbox_client_kwargs())
-sandbox.add(planner)
+sandbox = Sandbox(settings.SANDBOX_DIR)
+sandbox.add_agent(planner)
 
 root_agent = planner
