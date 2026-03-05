@@ -22,11 +22,12 @@ class Sandbox:
         auto_install_srt: bool = False,
     ) -> None:
         self.root_dir = Path(root_dir).expanduser().resolve()
-        self.agents_dir = self.root_dir / "agents"
+        self.control_dir = self.root_dir.parent / ".sandbox_control"
+        self.agents_dir = self.control_dir / "agents"
         self.settings_path = (
             Path(settings_path).expanduser().resolve()
             if settings_path is not None
-            else self.root_dir / "srt-settings.json"
+            else self.control_dir / "srt-settings.json"
         )
         self._config_override = config
         self._auto_install_srt = auto_install_srt
@@ -38,6 +39,8 @@ class Sandbox:
             self.initialize()
 
     def initialize(self) -> None:
+        self.root_dir.mkdir(parents=True, exist_ok=True)
+        self._migrate_legacy_runtime_layout()
         self.agents_dir.mkdir(parents=True, exist_ok=True)
         self._write_settings_file()
 
@@ -147,11 +150,27 @@ class Sandbox:
                 "deniedDomains": [],
             },
             "filesystem": {
-                "denyRead": [],
+                "denyRead": [str(self.control_dir)],
                 "allowWrite": [str(self.root_dir)],
                 "denyWrite": [],
             },
         }
+
+    def _migrate_legacy_runtime_layout(self) -> None:
+        legacy_agents_dir = self.root_dir / "agents"
+        legacy_settings_path = self.root_dir / "srt-settings.json"
+
+        if legacy_agents_dir.exists() and legacy_agents_dir.is_dir():
+            self.agents_dir.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(legacy_agents_dir, self.agents_dir, dirs_exist_ok=True)
+            shutil.rmtree(legacy_agents_dir)
+
+        if legacy_settings_path.exists() and legacy_settings_path != self.settings_path:
+            self.settings_path.parent.mkdir(parents=True, exist_ok=True)
+            if not self.settings_path.exists():
+                shutil.move(str(legacy_settings_path), str(self.settings_path))
+            else:
+                legacy_settings_path.unlink()
 
     def _write_settings_file(self) -> None:
         self.settings_path.parent.mkdir(parents=True, exist_ok=True)

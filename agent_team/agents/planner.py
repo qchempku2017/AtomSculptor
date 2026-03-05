@@ -7,6 +7,7 @@ from sandbox.tools import (
     sandbox_delete_path,
     sandbox_list_files,
     sandbox_read_file,
+    sandbox_run_command,
     sandbox_status,
     sandbox_write_file,
 )
@@ -28,6 +29,7 @@ For complex tasks, please write a clear TODO list and guide the sub-agents for h
 Provide clear, synthesized responses to the user based on the agents' results.
 The user may provide structure files or other inputs inside the 'inputs' directory. So you can check there if needed.
 You can use sandbox tools to inspect, create, modify, and delete files in the runtime sandbox when coding or file operations are requested.
+For shell-level inspection and commands (for example ls, cat, grep, find), use sandbox_run_command.
 """
 
 
@@ -44,6 +46,7 @@ planner = Agent(
         sandbox_write_file,
         sandbox_create_directory,
         sandbox_delete_path,
+        sandbox_run_command,
     ],
     # sub_agents=[structure_agent, mp_agent],
     output_key="last_planner_result",

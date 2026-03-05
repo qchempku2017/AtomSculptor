@@ -5,3 +5,7 @@ __pycache__/
 
 session.db
 .adk/
+
+# sandbox
+runtime/
+.sandbox_control/

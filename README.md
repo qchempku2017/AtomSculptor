@@ -102,8 +102,10 @@ print(result.stdout)
 
 What it does:
 
-- Creates sandbox folder + `srt-settings.json`
-- Registers agents under `sandbox/runtime/agents/<agent_name>/`
+- Creates sandbox workspace folder at `sandbox/runtime`
+- Stores internal sandbox control files under `sandbox/.sandbox_control/`
+  - `sandbox/.sandbox_control/srt-settings.json`
+  - `sandbox/.sandbox_control/agents/<agent_name>/`
 - Runs commands through:
   - `srt --settings <sandbox_settings_path> <command>`
 
