@@ -3,6 +3,8 @@
 
 # model used by the planner agent
 PLANNER_MODEL: "openai/qwen3-max"
+STRUCTURE_BUILDER_MODEL: "openai/qwen-plus"
+MP_SEARCHER_MODEL: "openai/qwen3-max"
 
 # local directory used by sandbox runtime wrapper
 SANDBOX_DIR: "sandbox/runtime"

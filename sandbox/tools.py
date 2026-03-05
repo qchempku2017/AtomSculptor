@@ -1,10 +1,13 @@
 import base64
+import os
 import shlex
 import subprocess
 from pathlib import Path
 
 from sandbox.core import Sandbox, SandboxRuntimeError
 from settings import settings
+
+from google.adk.tools.base_toolset import BaseToolset
 
 
 _sandbox: Sandbox | None = None
@@ -32,6 +35,7 @@ def _run_args(args: list[str], check: bool = True) -> subprocess.CompletedProces
         text=True,
         capture_output=True,
         check=False,
+        env=os.environ.copy(),
     )
 
     if check and result.returncode != 0:
@@ -74,7 +78,7 @@ def sandbox_status() -> dict:
     }
 
 
-def sandbox_list_files(path: str = ".", recursive: bool = True) -> list[str]:
+def sandbox_list_files(path: str = ".", recursive: bool = True) -> dict:
     """Lists files in the specified directory within the sandbox."""
     requested_path = path or "."
     script = """
@@ -111,7 +115,7 @@ for item in sorted(p for p in iterator if p.is_file()):
     }
 
 
-def sandbox_read_file(path: str) -> str:
+def sandbox_read_file(path: str) -> dict:
     """Reads the content of a file at the specified path within the sandbox."""
     script = """
 from pathlib import Path
@@ -160,6 +164,7 @@ target.write_text(base64.b64decode(payload).decode("utf-8"), encoding="utf-8")
 
 
 def sandbox_create_directory(path: str) -> dict:
+    """Creates a directory at the specified path within the sandbox, including any necessary parent directories."""
     script = """
 from pathlib import Path
 import sys
@@ -174,6 +179,7 @@ Path(sys.argv[1]).mkdir(parents=True, exist_ok=True)
 
 
 def sandbox_delete_path(path: str, missing_ok: bool = True) -> dict:
+    """Deletes a file or directory at the specified path within the sandbox."""
     script = """
 from pathlib import Path
 import shutil
@@ -218,6 +224,7 @@ def sandbox_run_command(command: str, timeout_seconds: int = 30) -> dict:
             capture_output=True,
             check=False,
             timeout=timeout,
+            env=os.environ.copy(),
         )
     except subprocess.TimeoutExpired as error:
         stdout = error.stdout if isinstance(error.stdout, str) else (error.stdout or "")
@@ -239,3 +246,7 @@ def sandbox_run_command(command: str, timeout_seconds: int = 30) -> dict:
         "stdout": result.stdout,
         "stderr": result.stderr,
     }
+
+
+
+    

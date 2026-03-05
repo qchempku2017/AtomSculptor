@@ -14,7 +14,7 @@ class SandboxRuntimeError(RuntimeError):
 class Sandbox:
     def __init__(
         self,
-        root_dir: str | Path = "sandbox/runtime",
+        root_dir: str | Path = "sandbox_runtime",
         create: bool = True,
         clear_existing: bool = False,
         settings_path: str | Path | None = None,
@@ -146,7 +146,10 @@ class Sandbox:
 
         return {
             "network": {
-                "allowedDomains": [],
+                "allowedDomains": [
+                    "api.materialsproject.org",
+                    "*.materialsproject.org",
+                ],
                 "deniedDomains": [],
             },
             "filesystem": {
