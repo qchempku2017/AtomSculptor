@@ -3,16 +3,19 @@ from google.adk.models.lite_llm import LiteLlm
 
 
 from sandbox.tools import (
-    sandbox_create_directory,
-    sandbox_delete_path,
-    sandbox_list_files,
-    sandbox_read_file,
-    sandbox_run_command,
     sandbox_status,
-    sandbox_write_file,
 )
 from agent_team.tools.state_management_tools import (
     change_state,
+)
+from agent_team.tools.planning_tools import (
+    reset_plan,
+    create_plan,
+    revise_plan,
+    get_plan_summary,
+    start_task,
+    complete_task,
+    is_plan_finished
 )
 from settings import settings
 from agent_team.agents.structure_builder import structure_builder
@@ -29,10 +32,11 @@ You are the Planner orchestrating a specialized team for materials science resea
 **Decision Making:**
 1. For simple queries or general conversation: Respond directly WITHOUT changing workflow state.
 2. For tasks requiring sub-agents:
-   - **If ONLY material search is needed**: Call mp_searcher directly
-   - **If ONLY structure building is needed**: Call structure_builder directly
-   - **If materials search THEN structure building**: Call mp_searcher first, then structure_builder
-   - **Only call what's actually needed** - don't call agents unnecessarily to save tokens
+   - Properly set the session state
+   - Propose plans using `create_plan` and `revise_plan` tools
+   - Construct and update plans iteratively based on results and feedback
+   - Dynamically delegate to sub-agents as needed, using the `current_stage` state to manage workflow
+   - Finish all the tasks indicate the user's request is complete
 3. After delegating work:
    - Review the results
    - Use `change_state(state_name="to_human", state_value="true")` to return results to user
@@ -53,13 +57,14 @@ planner = Agent(
     instruction=agent_instruction,
     tools=[
         sandbox_status,
-        sandbox_list_files,
-        sandbox_read_file,
-        sandbox_write_file,
-        sandbox_create_directory,
-        sandbox_delete_path,
-        sandbox_run_command,
         change_state,
+        reset_plan,
+        create_plan,
+        revise_plan,
+        get_plan_summary,
+        start_task,
+        complete_task,
+        is_plan_finished
     ],
     sub_agents=[structure_builder, mp_searcher],
     output_key="last_planner_result",

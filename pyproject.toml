@@ -17,3 +17,7 @@ dependencies = [
     "rdkit>=2025.9.6",
     "duckduckgo_search>=8.1.1"
 ]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["agent_team", "sandbox"]

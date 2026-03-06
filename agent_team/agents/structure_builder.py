@@ -11,6 +11,11 @@ from sandbox.tools import (
     sandbox_status,
     sandbox_write_file,
 )
+from agent_team.tools.planning_tools import (
+    complete_task,
+    get_plan_summary,
+    is_plan_finished,
+)
 from settings import settings
 
 
@@ -40,6 +45,9 @@ structure_builder = Agent(
         sandbox_create_directory,
         sandbox_delete_path,
         sandbox_run_command,
+        get_plan_summary,
+        complete_task,
+        is_plan_finished
     ],
     output_key="last_structure_builder_result",
 )
