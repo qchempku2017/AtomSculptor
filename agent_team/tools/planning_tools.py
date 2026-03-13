@@ -23,14 +23,18 @@ def create_plan(
     
     Args:
         tasks: List of task descriptions. Task IDs will be assigned sequentially starting from 1.
-        dependencies: Dict mapping task IDs to lists of dependency IDs. e.g., {2: [1, 3]} means task 2 can only be executed after task 1 and 3.
+        dependencies: Dict mapping task IDs to lists of dependency IDs. e.g., {2: [1, 3]} means task 2 can only be executed after task 1 and 3. Default dependency is sequential (task n depends on task n-1).
     """
 
     # create Task lists
     task_objects = []
     for i, desc in enumerate(tasks):
         task_id = i + 1  # Task IDs start from 1
-        deps = dependencies.get(task_id, []) if dependencies else []
+        if dependencies:
+            deps = dependencies.get(task_id, [])
+        else:
+            # Default sequential dependency: task n depends on task n-1
+            deps = [task_id - 1] if task_id > 1 else []
         task_objects.append(Task(description=desc, id=task_id, dependencies=deps))
 
     plan = Plan(task_objects)

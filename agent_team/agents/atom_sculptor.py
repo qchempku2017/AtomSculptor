@@ -61,6 +61,8 @@ class Orchestrator(BaseAgent):
                             )
                         )
                         yield system_event
+                        async for event in planner.run_async(ctx):
+                            yield event
                     return
                 
                 # Otherwise, start a new planning cycle

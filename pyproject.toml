@@ -38,6 +38,11 @@ dev = [
     "pytest-asyncio>=1.0.0",
 ]
 
+web = [
+    "uvicorn[standard]>=0.30.0",
+    "starlette>=0.37.0",
+]
+
 treesitter-full = [
     "tree-sitter-javascript>=0.23.1",
     "tree-sitter-typescript>=0.23.2",
@@ -53,6 +58,7 @@ where = [".", "code_graph_rag"]
 include = [
     "agent_team", "agent_team.*",
     "sandbox", "sandbox.*",
+    "web_gui", "web_gui.*",
     "code_graph_rag", "code_graph_rag.*",
     "codebase_rag", "codebase_rag.*",
 ]

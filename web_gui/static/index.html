@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>AtomSculptor</title>
+<!-- Graph -->
+<script src="https://cdn.jsdelivr.net/npm/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
+<!-- 3-D viewer -->
+<script src="https://cdn.jsdelivr.net/npm/3dmol@2.4.2/build/3Dmol-min.js"></script>
+<!-- Markdown -->
+<script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js"></script>
+<style>
+/* ═══════════════════ CSS Reset & Theme ═══════════════════ */
+:root{
+  --bg0:#181818;--bg1:#1e1e1e;--bg2:#252526;--bg3:#2d2d2d;--bg-hover:#37373d;
+  --border:#3c3c3c;--text:#d4d4d4;--text2:#a0a0a0;--text3:#6a6a6a;
+  --accent:#007acc;--accent-l:#1a8cdb;
+  --user-bg:#264f78;--agent-bg:#2d2d2d;
+  --s-pending:#858585;--s-ready:#4fc3f7;--s-progress:#ffb74d;
+  --s-done:#81c784;--s-blocked:#e57373;--s-deprecated:#616161;
+  --font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  --mono:'Fira Code','Cascadia Code',Consolas,'Courier New',monospace;
+  --radius:6px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow:hidden;font-family:var(--font);font-size:13px;
+  color:var(--text);background:var(--bg0)}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:var(--bg1)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+::-webkit-scrollbar-thumb:hover{background:#555}
+
+/* ═══════════════════ Layout ═══════════════════ */
+#app{display:grid;height:100vh;
+  grid-template-columns:280px 1fr 1fr 260px;
+  grid-template-rows:36px 1fr;
+  grid-template-areas:"hdr hdr hdr hdr" "todo chat struct files";}
+
+/* ── Header bar ── */
+#header{grid-area:hdr;display:flex;align-items:center;gap:12px;
+  padding:0 14px;background:var(--bg2);border-bottom:1px solid var(--border)}
+#header .logo{font-weight:700;font-size:14px;color:var(--accent-l);letter-spacing:.5px}
+#header .status{margin-left:auto;font-size:11px;color:var(--text3)}
+#header .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;
+  vertical-align:middle;background:var(--s-blocked)}
+#header .dot.ok{background:var(--s-done)}
+
+/* ── Panels ── */
+.panel{display:flex;flex-direction:column;overflow:hidden;
+  background:var(--bg1);border-right:1px solid var(--border)}
+.panel:last-child{border-right:none}
+.panel-hdr{padding:6px 12px;font-size:11px;font-weight:600;text-transform:uppercase;
+  letter-spacing:.8px;color:var(--text2);background:var(--bg2);
+  border-bottom:1px solid var(--border);flex-shrink:0;
+  display:flex;align-items:center;justify-content:space-between;user-select:none}
+.panel-hdr button{background:none;border:none;color:var(--text3);cursor:pointer;
+  font-size:12px;padding:2px 6px;border-radius:3px}
+.panel-hdr button:hover{color:var(--text);background:var(--bg-hover)}
+.panel-body{flex:1;overflow-y:auto;position:relative}
+
+#panel-todo{grid-area:todo}
+#panel-chat{grid-area:chat}
+#panel-struct{grid-area:struct}
+#panel-files{grid-area:files}
+
+/* ═══════════════════ 1) Todo Flow Panel ═══════════════════ */
+#session-info{padding:8px 10px;font-size:11px;color:var(--text3);
+  border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;gap:4px 12px}
+#session-info span{white-space:nowrap}
+#todo-graph{flex:1;min-height:0}
+#todo-empty{padding:24px 16px;text-align:center;color:var(--text3);font-size:12px}
+#legend{padding:6px 10px;border-top:1px solid var(--border);
+  display:flex;flex-wrap:wrap;gap:4px 10px;font-size:10px;color:var(--text3)}
+.legend-item{display:flex;align-items:center;gap:3px}
+.legend-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+/* Tooltip */
+#tooltip{position:fixed;z-index:999;pointer-events:none;max-width:320px;
+  padding:10px 12px;border-radius:var(--radius);font-size:12px;line-height:1.5;
+  background:#1a1a2e;border:1px solid var(--accent);color:var(--text);
+  box-shadow:0 4px 16px rgba(0,0,0,.5);display:none}
+#tooltip .tt-title{font-weight:700;margin-bottom:4px;color:var(--accent-l)}
+#tooltip .tt-status{display:inline-block;padding:1px 6px;border-radius:3px;font-size:10px;
+  font-weight:600;color:#fff;margin-bottom:4px}
+#tooltip .tt-desc{color:var(--text2)}
+#tooltip .tt-deps{color:var(--text3);font-size:11px;margin-top:4px}
+#tooltip .tt-result{color:var(--s-done);font-size:11px;margin-top:4px;
+  max-height:80px;overflow:auto;white-space:pre-wrap;font-family:var(--mono)}
+
+/* ═══════════════════ 2) Chat Panel ═══════════════════ */
+#chat-messages{padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+/* shared bubble */
+.msg{padding:8px 12px;border-radius:var(--radius);max-width:92%;word-wrap:break-word;
+  line-height:1.55;animation:fadeIn .15s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.msg-user{align-self:flex-end;background:var(--user-bg);border-bottom-right-radius:2px;color:#e0e8f0}
+.msg-agent{align-self:flex-start;background:var(--agent-bg);border:1px solid var(--border);
+  border-bottom-left-radius:2px}
+.msg-agent .author-badge{font-size:10px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.5px;margin-bottom:3px;display:block}
+.msg-agent .author-badge.planner{color:var(--s-ready)}
+.msg-agent .author-badge.structure_builder{color:var(--s-done)}
+.msg-agent .author-badge.mp_searcher{color:var(--s-progress)}
+.msg-agent .author-badge.atom_sculptor{color:#ce93d8}
+.msg-agent .author-badge.system{color:var(--text3)}
+.msg-agent .msg-text{color:var(--text)}
+.msg-agent .msg-text p{margin-bottom:6px}
+.msg-agent .msg-text p:last-child{margin-bottom:0}
+.msg-agent .msg-text code{font-family:var(--mono);font-size:12px;
+  background:var(--bg0);padding:1px 4px;border-radius:3px}
+.msg-agent .msg-text pre{background:var(--bg0);padding:8px;border-radius:4px;
+  overflow-x:auto;margin:6px 0;font-family:var(--mono);font-size:12px}
+.msg-agent .msg-text pre code{background:none;padding:0}
+/* tool call / result card */
+.tool-card{align-self:flex-start;max-width:92%;border-radius:var(--radius);
+  border:1px solid var(--border);overflow:hidden;animation:fadeIn .15s ease}
+.tool-card-hdr{display:flex;align-items:center;gap:6px;padding:5px 10px;
+  cursor:pointer;user-select:none;font-size:12px;background:var(--bg2)}
+.tool-card-hdr:hover{background:var(--bg-hover)}
+.tool-card-hdr .tool-icon{font-size:13px}
+.tool-card-hdr .tool-name{font-weight:600;color:var(--accent-l);font-family:var(--mono)}
+.tool-card-hdr .tool-author{color:var(--text3);font-size:10px;margin-left:auto}
+.tool-card-hdr .toggle{color:var(--text3);font-size:10px;margin-left:6px;transition:transform .15s}
+.tool-card-hdr .toggle.open{transform:rotate(90deg)}
+.tool-card-body{padding:8px 10px;font-family:var(--mono);font-size:11px;
+  background:var(--bg0);color:var(--text2);white-space:pre-wrap;max-height:260px;
+  overflow:auto;display:none}
+.tool-card-body.show{display:block}
+.tool-card.result .tool-card-hdr{border-left:3px solid var(--s-done)}
+.tool-card.call .tool-card-hdr{border-left:3px solid var(--accent)}
+/* processing indicator */
+.processing{align-self:flex-start;padding:8px 12px;color:var(--text3);font-size:12px;
+  display:flex;align-items:center;gap:6px}
+.processing .spinner{width:14px;height:14px;border:2px solid var(--border);
+  border-top-color:var(--accent-l);border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* error */
+.msg-error{align-self:stretch;background:#3b1c1c;border:1px solid var(--s-blocked);
+  border-radius:var(--radius);padding:8px 12px;color:var(--s-blocked);font-size:12px}
+/* input area */
+#chat-input-area{display:flex;gap:6px;padding:8px 10px;border-top:1px solid var(--border);
+  background:var(--bg2);flex-shrink:0}
+#chat-input{flex:1;resize:none;border:1px solid var(--border);border-radius:var(--radius);
+  background:var(--bg1);color:var(--text);padding:7px 10px;font-family:var(--font);
+  font-size:13px;outline:none;min-height:36px;max-height:120px}
+#chat-input:focus{border-color:var(--accent)}
+#chat-input:disabled{opacity:.5}
+#send-btn{padding:0 16px;border:none;border-radius:var(--radius);
+  background:var(--accent);color:#fff;font-weight:600;font-size:13px;cursor:pointer;
+  flex-shrink:0;white-space:nowrap}
+#send-btn:hover{background:var(--accent-l)}
+#send-btn:disabled{opacity:.4;cursor:default}
+
+/* ═══════════════════ 3) Structure Viewer ═══════════════════ */
+#struct-file-label{font-size:11px;color:var(--text3);font-weight:400;
+  max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#viewer-container{width:100%;height:100%;position:relative}
+#viewer-empty{position:absolute;inset:0;display:flex;align-items:center;
+  justify-content:center;color:var(--text3);font-size:12px;text-align:center;padding:20px}
+#viewer-controls{position:absolute;bottom:8px;right:8px;display:flex;gap:4px;z-index:10}
+#viewer-controls button{width:28px;height:28px;border:1px solid var(--border);
+  border-radius:4px;background:rgba(30,30,30,.85);color:var(--text);cursor:pointer;
+  font-size:14px;display:flex;align-items:center;justify-content:center}
+#viewer-controls button:hover{background:var(--bg-hover)}
+
+/* ═══════════════════ 4) File Explorer ═══════════════════ */
+#file-tree{padding:4px 0}
+.tree-item{display:flex;align-items:center;gap:4px;padding:3px 8px;cursor:pointer;
+  white-space:nowrap;font-size:12px;user-select:none}
+.tree-item:hover{background:var(--bg-hover)}
+.tree-item.selected{background:var(--accent);color:#fff}
+.tree-icon{font-size:13px;flex-shrink:0;width:16px;text-align:center}
+.tree-name{overflow:hidden;text-overflow:ellipsis}
+.tree-size{margin-left:auto;font-size:10px;color:var(--text3)}
+.tree-children{display:none}
+.tree-children.open{display:block}
+.tree-toggle{width:14px;text-align:center;font-size:9px;color:var(--text3);flex-shrink:0;
+  transition:transform .15s}
+.tree-toggle.open{transform:rotate(90deg)}
+#file-empty{padding:24px 16px;text-align:center;color:var(--text3);font-size:12px}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════ Header ═══════════════════ -->
+<div id="app">
+<div id="header">
+  <span class="logo">⚛ AtomSculptor</span>
+  <span class="status"><span class="dot" id="ws-dot"></span><span id="ws-label">Connecting…</span></span>
+</div>
+
+<!-- ═══════════════════ 1) Todo Flow ═══════════════════ -->
+<div class="panel" id="panel-todo">
+  <div class="panel-hdr"><span>Task Flow</span>
+    <button id="btn-refresh-todo" title="Refresh">↻</button></div>
+  <div class="panel-body" style="display:flex;flex-direction:column">
+    <div id="session-info"></div>
+    <div id="todo-graph"></div>
+    <div id="todo-empty">No active plan.<br>Send a message to start.</div>
+    <div id="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:var(--s-pending)"></div>Pending</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--s-ready)"></div>Ready</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--s-progress)"></div>In Progress</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--s-done)"></div>Done</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--s-blocked)"></div>Blocked</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--s-deprecated)"></div>Deprecated</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ 2) Chat ═══════════════════ -->
+<div class="panel" id="panel-chat">
+  <div class="panel-hdr"><span>Chat</span>
+    <button id="btn-clear-chat" title="Clear chat">✕</button></div>
+  <div class="panel-body" id="chat-scroll">
+    <div id="chat-messages"></div>
+  </div>
+  <div id="chat-input-area">
+    <textarea id="chat-input" rows="1" placeholder="Ask AtomSculptor…"></textarea>
+    <button id="send-btn">Send</button>
+  </div>
+</div>
+
+<!-- ═══════════════════ 3) Structure Viewer ═══════════════════ -->
+<div class="panel" id="panel-struct">
+  <div class="panel-hdr"><span>Structure</span><span id="struct-file-label"></span></div>
+  <div class="panel-body">
+    <div id="viewer-container">
+      <div id="viewer-empty">Double-click a structure file<br>(.cif .xyz .vasp .pdb) to view</div>
+      <div id="viewer-controls" style="display:none">
+        <button id="btn-reset-view" title="Reset view">⟳</button>
+        <button id="btn-style-bs" title="Ball & stick">⚛</button>
+        <button id="btn-style-sp" title="Spacefill">●</button>
+        <button id="btn-style-st" title="Stick">╏</button>
+        <button id="btn-toggle-cell" title="Toggle unit cell">▦</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ 4) File Explorer ═══════════════════ -->
+<div class="panel" id="panel-files">
+  <div class="panel-hdr"><span>Workspace</span>
+    <button id="btn-refresh-files" title="Refresh">↻</button></div>
+  <div class="panel-body">
+    <div id="file-tree"></div>
+    <div id="file-empty">No files yet.</div>
+  </div>
+</div>
+</div><!-- /app -->
+
+<!-- ═══════════════════ Tooltip ═══════════════════ -->
+<div id="tooltip"></div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════
+   App State
+   ═══════════════════════════════════════════════════════════ */
+const S = {
+  ws: null,
+  cy: null,
+  viewer: null,
+  viewerReady: false,
+  unitCellVisible: true,
+  currentStyle: 'bs',
+  connected: false,
+  processing: false,
+  todoData: {tasks:[], finished:true},
+};
+
+const STRUCTURE_EXTS = new Set(['cif','xyz','vasp','poscar','extxyz','pdb','sdf','mol2']);
+const STATUS_COLOR = {
+  pending:'#858585', ready:'#4fc3f7', in_progress:'#ffb74d',
+  done:'#81c784', blocked:'#e57373', deprecated:'#616161',
+};
+const AUTHOR_COLORS = {
+  planner:'#4fc3f7', structure_builder:'#81c784',
+  mp_searcher:'#ffb74d', atom_sculptor:'#ce93d8', system:'#a0a0a0',
+};
+
+/* ── Helpers ── */
+const $=s=>document.querySelector(s);
+const $$=s=>document.querySelectorAll(s);
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+function truncate(s,n){return s.length>n?s.slice(0,n)+'…':s}
+function fmtSize(b){if(b<1024)return b+'B';if(b<1048576)return(b/1024).toFixed(1)+'K';return(b/1048576).toFixed(1)+'M'}
+function renderMd(text){
+  try{return marked.parse(text,{breaks:true})}
+  catch(e){return '<p>'+esc(text).replace(/\n/g,'<br>')+'</p>'}
+}
+function jsonPretty(obj){
+  try{return JSON.stringify(obj,null,2)}catch(e){return String(obj)}
+}
+
+/* ═══════════════════════════════════════════════════════════
+   WebSocket
+   ═══════════════════════════════════════════════════════════ */
+let reconnectTimer = null;
+function connect(){
+  if(S.ws && S.ws.readyState<=1) return;
+  const proto = location.protocol==='https:'?'wss':'ws';
+  S.ws = new WebSocket(`${proto}://${location.host}/ws`);
+  S.ws.onopen=()=>{
+    S.connected=true;
+    $('#ws-dot').classList.add('ok');
+    $('#ws-label').textContent='Connected';
+  };
+  S.ws.onclose=()=>{
+    S.connected=false;
+    $('#ws-dot').classList.remove('ok');
+    $('#ws-label').textContent='Disconnected';
+    if(!reconnectTimer) reconnectTimer=setTimeout(()=>{reconnectTimer=null;connect()},2000);
+  };
+  S.ws.onerror=()=>{};
+  S.ws.onmessage=e=>{
+    try{handleMsg(JSON.parse(e.data))}catch(err){console.error('ws msg error',err)}
+  };
+}
+
+function send(obj){
+  if(S.ws&&S.ws.readyState===1) S.ws.send(JSON.stringify(obj));
+}
+
+function handleMsg(m){
+  switch(m.type){
+    case 'user_message': appendUser(m.text); break;
+    case 'agent_message': appendAgent(m.author,m.text); break;
+    case 'tool_call': appendToolCall(m.author,m.tool,m.args); break;
+    case 'tool_result': appendToolResult(m.author,m.tool,m.result); break;
+    case 'todo_flow_update': updateTodo(m.data); break;
+    case 'files_update': renderFiles(m.data); break;
+    case 'done': setProcessing(false); break;
+    case 'error': appendError(m.text,m.traceback); setProcessing(false); break;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Todo Flow Graph
+   ═══════════════════════════════════════════════════════════ */
+function initGraph(){
+  S.cy = cytoscape({
+    container: $('#todo-graph'),
+    elements: [],
+    style:[
+      {selector:'node', style:{
+        'label':'data(label)','text-valign':'bottom','text-halign':'center',
+        'text-margin-y':8,
+        'text-wrap':'wrap','text-max-width':'100px',
+        'font-size':'10px','color':'#fff',
+        'background-color':'data(color)',
+        'width':18,'height':18,'border-width':2,'border-color':'#444',
+        'shape':'ellipse','text-outline-width':0,
+      }},
+      {selector:'node[status="in_progress"]',style:{
+        'border-color':'#ffb74d','border-width':3,
+      }},
+      {selector:'node[status="done"]',style:{
+        'border-color':'#81c784','border-width':2,
+      }},
+      {selector:'edge',style:{
+        'width':2,'line-color':'#555','target-arrow-color':'#888',
+        'target-arrow-shape':'triangle','curve-style':'bezier',
+        'arrow-scale':0.8,
+      }},
+    ],
+    layout:{name:'grid'},
+    userZoomingEnabled:true, userPanningEnabled:true,
+    boxSelectionEnabled:false, autoungrabify:true,
+  });
+  // Tooltip
+  S.cy.on('mouseover','node', e=>{
+    const d=e.target.data();
+    showTooltip(e.renderedPosition,d);
+  });
+  S.cy.on('mouseout','node',()=>hideTooltip());
+  S.cy.on('drag','node',()=>hideTooltip());
+}
+
+function updateTodo(data){
+  S.todoData=data;
+  const tasks=data.tasks||[];
+  const empty=$('#todo-empty');
+  const graph=$('#todo-graph');
+
+  if(!tasks.length){
+    empty.style.display='block'; graph.style.display='none';
+    S.cy.elements().remove();
+    updateSessionInfo(data);
+    return;
+  }
+  empty.style.display='none'; graph.style.display='block';
+
+  // Build elements
+  const elems=[];
+  for(const t of tasks){
+    elems.push({data:{
+      id:'t'+t.id, label:'#'+t.id+'\n'+truncate(t.description,28),
+      color: STATUS_COLOR[t.status]||'#858585',
+      status:t.status, taskId:t.id, description:t.description,
+      result:t.result, dependencies:t.dependencies,
+    }});
+  }
+  const taskIds=new Set(tasks.map(t=>t.id));
+  for(const t of tasks){
+    for(const dep of (t.dependencies||[])){
+      if(taskIds.has(dep)){
+        elems.push({data:{id:'e'+dep+'_'+t.id, source:'t'+dep, target:'t'+t.id}});
+      }
+    }
+  }
+
+  S.cy.elements().remove();
+  S.cy.add(elems);
+  S.cy.layout({
+    name:'dagre', rankDir:'TB', ranker:'tight-tree', nodeSep:24, rankSep:58, edgeSep:10, padding:20,
+  }).run();
+
+  updateSessionInfo(data);
+}
+
+function updateSessionInfo(data){
+  const info=$('#session-info');
+  const tasks=data.tasks||[];
+  const done=tasks.filter(t=>t.status==='done').length;
+  const total=tasks.length;
+  const active=tasks.find(t=>t.status==='in_progress');
+  let html=`<span>Tasks: ${done}/${total}</span>`;
+  if(data.finished && total>0) html+=`<span style="color:var(--s-done)">✓ All done</span>`;
+  if(active) html+=`<span style="color:var(--s-progress)">▶ #${active.id}</span>`;
+  info.innerHTML=html;
+}
+
+/* Tooltip */
+function showTooltip(pos,d){
+  const tt=$('#tooltip');
+  const statusBg=STATUS_COLOR[d.status]||'#858585';
+  let html=`<div class="tt-title">Task #${d.taskId}</div>`;
+  html+=`<span class="tt-status" style="background:${statusBg}">${d.status}</span>`;
+  html+=`<div class="tt-desc">${esc(d.description)}</div>`;
+  if(d.dependencies&&d.dependencies.length){
+    html+=`<div class="tt-deps">Depends on: ${d.dependencies.map(i=>'#'+i).join(', ')}</div>`;
+  }
+  if(d.result){
+    html+=`<div class="tt-result">${esc(truncate(String(d.result),200))}</div>`;
+  }
+  tt.innerHTML=html;
+  tt.style.display='block';
+
+  // Position near the panel, not under cursor
+  const rect=$('#panel-todo').getBoundingClientRect();
+  let x=rect.left+pos.x+12;
+  let y=rect.top+pos.y+50; // account for panel header
+  if(x+330>window.innerWidth) x=window.innerWidth-340;
+  if(y+200>window.innerHeight) y=y-220;
+  tt.style.left=x+'px'; tt.style.top=y+'px';
+}
+function hideTooltip(){$('#tooltip').style.display='none'}
+
+/* ═══════════════════════════════════════════════════════════
+   Chat
+   ═══════════════════════════════════════════════════════════ */
+const chatEl=$('#chat-messages');
+const scrollEl=$('#chat-scroll');
+
+function scrollBottom(){
+  requestAnimationFrame(()=>{scrollEl.scrollTop=scrollEl.scrollHeight});
+}
+
+function appendUser(text){
+  const d=document.createElement('div');
+  d.className='msg msg-user';
+  d.textContent=text;
+  chatEl.appendChild(d);
+  scrollBottom();
+}
+
+function appendAgent(author,text){
+  removeProcessing();
+  const d=document.createElement('div');
+  d.className='msg msg-agent';
+  const badge=document.createElement('span');
+  badge.className='author-badge '+author;
+  badge.textContent=author;
+  const body=document.createElement('div');
+  body.className='msg-text';
+  body.innerHTML=renderMd(text);
+  d.appendChild(badge);
+  d.appendChild(body);
+  chatEl.appendChild(d);
+  scrollBottom();
+}
+
+function appendToolCall(author,tool,args){
+  removeProcessing();
+  const card=document.createElement('div');
+  card.className='tool-card call';
+  const hdr=document.createElement('div');
+  hdr.className='tool-card-hdr';
+  hdr.innerHTML=`<span class="tool-icon">🔧</span><span class="tool-name">${esc(tool)}</span>`
+    +`<span class="tool-author">${esc(author)}</span><span class="toggle">▶</span>`;
+  const body=document.createElement('div');
+  body.className='tool-card-body';
+  body.textContent=jsonPretty(args);
+  hdr.onclick=()=>{
+    body.classList.toggle('show');
+    hdr.querySelector('.toggle').classList.toggle('open');
+  };
+  card.appendChild(hdr);
+  card.appendChild(body);
+  chatEl.appendChild(card);
+  addProcessing();
+  scrollBottom();
+}
+
+function appendToolResult(author,tool,result){
+  removeProcessing();
+  const card=document.createElement('div');
+  card.className='tool-card result';
+  const hdr=document.createElement('div');
+  hdr.className='tool-card-hdr';
+  hdr.innerHTML=`<span class="tool-icon">✅</span><span class="tool-name">${esc(tool)}</span>`
+    +`<span class="tool-author">result</span><span class="toggle">▶</span>`;
+  const body=document.createElement('div');
+  body.className='tool-card-body';
+  body.textContent=jsonPretty(result);
+  hdr.onclick=()=>{
+    body.classList.toggle('show');
+    hdr.querySelector('.toggle').classList.toggle('open');
+  };
+  card.appendChild(hdr);
+  card.appendChild(body);
+  chatEl.appendChild(card);
+  scrollBottom();
+
+  // Auto-load structure if the result references a structure file
+  autoLoadStructure(result);
+}
+
+function appendError(text,tb){
+  removeProcessing();
+  const d=document.createElement('div');
+  d.className='msg-error';
+  d.innerHTML=`<strong>Error:</strong> ${esc(text)}`;
+  if(tb){
+    const pre=document.createElement('pre');
+    pre.style.cssText='font-size:10px;margin-top:6px;max-height:120px;overflow:auto;color:#e0a0a0';
+    pre.textContent=tb;
+    d.appendChild(pre);
+  }
+  chatEl.appendChild(d);
+  scrollBottom();
+}
+
+function addProcessing(){
+  removeProcessing();
+  const d=document.createElement('div');
+  d.className='processing';d.id='proc-indicator';
+  d.innerHTML='<div class="spinner"></div> Processing…';
+  chatEl.appendChild(d);
+  scrollBottom();
+}
+function removeProcessing(){
+  const el=$('#proc-indicator');if(el)el.remove();
+}
+
+function setProcessing(v){
+  S.processing=v;
+  $('#chat-input').disabled=v;
+  $('#send-btn').disabled=v;
+  if(!v) removeProcessing();
+}
+
+function autoLoadStructure(result){
+  if(!result||typeof result!=='object') return;
+  // Look for keys that might reference structure files
+  for(const key of Object.keys(result)){
+    const val=result[key];
+    if(typeof val!=='string') continue;
+    const ext=val.split('.').pop().toLowerCase();
+    if(STRUCTURE_EXTS.has(ext)){
+      loadStructure(val);
+      return;
+    }
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   3D Structure Viewer
+   ═══════════════════════════════════════════════════════════ */
+function initViewer(){
+  const el=$('#viewer-container');
+  S.viewer = $3Dmol.createViewer(el, {
+    backgroundColor:'#181825',
+    id:'mol-viewer',
+  });
+  S.viewerReady=true;
+}
+
+async function loadStructure(path){
+  if(!S.viewerReady) return;
+  try{
+    const resp=await fetch('/api/structure?path='+encodeURIComponent(path));
+    const data=await resp.json();
+    if(data.error){console.error(data.error);return}
+
+    S.viewer.clear();
+    S.viewer.addModel(data.content, data.format);
+    applyStyle(S.currentStyle);
+    S.unitCellVisible=true;
+    try{S.viewer.addUnitCell()}catch(e){}
+    S.viewer.zoomTo();
+    S.viewer.render();
+
+    $('#struct-file-label').textContent=data.path;
+    $('#viewer-empty').style.display='none';
+    $('#viewer-controls').style.display='flex';
+  }catch(e){console.error('loadStructure',e)}
+}
+
+function applyStyle(mode){
+  S.currentStyle=mode;
+  S.viewer.setStyle({},
+    mode==='bs'?{stick:{radius:0.15},sphere:{scale:0.3}}:
+    mode==='sp'?{sphere:{scale:0.6}}:
+    {stick:{radius:0.12}}
+  );
+  S.viewer.render();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   File Explorer
+   ═══════════════════════════════════════════════════════════ */
+function fileIcon(name){
+  const ext=name.split('.').pop().toLowerCase();
+  if(STRUCTURE_EXTS.has(ext)) return '🔬';
+  if(ext==='py') return '🐍';
+  if(ext==='md') return '📝';
+  if(ext==='json'||ext==='yaml'||ext==='yml'||ext==='toml') return '⚙';
+  if(ext==='png'||ext==='jpg'||ext==='svg') return '🖼';
+  return '📄';
+}
+
+function renderFiles(tree){
+  const container=$('#file-tree');
+  const empty=$('#file-empty');
+  container.innerHTML='';
+  if(!tree||!tree.length){empty.style.display='block';container.style.display='none';return}
+  empty.style.display='none';container.style.display='block';
+  buildTree(tree,container,0);
+}
+
+function buildTree(items,container,level){
+  for(const item of items){
+    if(item.type==='directory'){
+      // Folder row
+      const row=document.createElement('div');
+      row.className='tree-item';
+      row.style.paddingLeft=(level*14+6)+'px';
+      row.innerHTML=`<span class="tree-toggle">▶</span><span class="tree-icon">📁</span><span class="tree-name">${esc(item.name)}</span>`;
+      container.appendChild(row);
+      // Children container
+      const kids=document.createElement('div');
+      kids.className='tree-children';
+      buildTree(item.children||[],kids,level+1);
+      container.appendChild(kids);
+      // Toggle
+      row.addEventListener('click',()=>{
+        const open=kids.classList.toggle('open');
+        row.querySelector('.tree-toggle').classList.toggle('open',open);
+        row.querySelector('.tree-icon').textContent=open?'📂':'📁';
+      });
+    } else {
+      const row=document.createElement('div');
+      row.className='tree-item';
+      row.style.paddingLeft=(level*14+20)+'px'; // no toggle arrow, so extra indent
+      const icon=fileIcon(item.name);
+      row.innerHTML=`<span class="tree-icon">${icon}</span><span class="tree-name">${esc(item.name)}</span>`
+        +`<span class="tree-size">${fmtSize(item.size)}</span>`;
+      // Double-click to open structure
+      const ext=item.name.split('.').pop().toLowerCase();
+      if(STRUCTURE_EXTS.has(ext)){
+        row.style.cursor='pointer';
+        row.addEventListener('dblclick',()=>loadStructure(item.path));
+      }
+      container.appendChild(row);
+    }
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Input handling
+   ═══════════════════════════════════════════════════════════ */
+function sendChat(){
+  const input=$('#chat-input');
+  const text=input.value.trim();
+  if(!text||S.processing) return;
+  send({type:'chat',message:text});
+  input.value='';
+  input.style.height='auto';
+  setProcessing(true);
+  addProcessing();
+}
+
+/* Auto-grow textarea */
+$('#chat-input').addEventListener('input',function(){
+  this.style.height='auto';
+  this.style.height=Math.min(this.scrollHeight,120)+'px';
+});
+$('#chat-input').addEventListener('keydown',function(e){
+  if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendChat()}
+});
+$('#send-btn').addEventListener('click',sendChat);
+$('#btn-clear-chat').addEventListener('click',()=>{chatEl.innerHTML=''});
+$('#btn-refresh-todo').addEventListener('click',()=>send({type:'refresh_todo'}));
+$('#btn-refresh-files').addEventListener('click',()=>send({type:'refresh_files'}));
+
+/* Viewer controls */
+$('#btn-reset-view').addEventListener('click',()=>{if(S.viewer){S.viewer.zoomTo();S.viewer.render()}});
+$('#btn-style-bs').addEventListener('click',()=>applyStyle('bs'));
+$('#btn-style-sp').addEventListener('click',()=>applyStyle('sp'));
+$('#btn-style-st').addEventListener('click',()=>applyStyle('st'));
+$('#btn-toggle-cell').addEventListener('click',()=>{
+  if(!S.viewer) return;
+  S.unitCellVisible=!S.unitCellVisible;
+  S.viewer.removeAllUnitCells();
+  if(S.unitCellVisible) try{S.viewer.addUnitCell()}catch(e){}
+  S.viewer.render();
+});
+
+/* ═══════════════════════════════════════════════════════════
+   Init
+   ═══════════════════════════════════════════════════════════ */
+document.addEventListener('DOMContentLoaded',()=>{
+  initGraph();
+  initViewer();
+  connect();
+});
+</script>
+</body>
+</html>
