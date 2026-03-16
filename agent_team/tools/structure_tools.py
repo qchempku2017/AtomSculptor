@@ -16,8 +16,12 @@ import numpy as np
 from pymatgen.analysis.interfaces.substrate_analyzer import SubstrateAnalyzer
 from pymatgen.analysis.interfaces.coherent_interfaces import CoherentInterfaceBuilder
 from pymatgen.io.ase import AseAtomsAdaptor
+from pymatgen.io.cif import CifParser
 
 from settings import settings
+
+
+_LARGE_CIF_SIZE_BYTES = 1_000_000
 
 
 def _sandbox_root() -> Path:
@@ -94,6 +98,15 @@ def _load_atoms_from_path(path_str: str) -> Atoms:
         return {"error": f"File not found: {path_str}"}
 
     try:
+        # ASE's CIF reader can become extremely slow on very large CIFs due
+        # to symmetry-equivalent site handling. Use pymatgen for large CIFs.
+        if resolved.suffix.lower() == ".cif" and resolved.stat().st_size >= _LARGE_CIF_SIZE_BYTES:
+            parser = CifParser(str(resolved))
+            structures = parser.parse_structures(primitive=False)
+            if not structures:
+                return {"error": f"No structures found in CIF file: {path_str}"}
+            return AseAtomsAdaptor.get_atoms(structures[0])
+
         return read(resolved)
     except Exception as e:
         return {"error": str(e)}
@@ -252,13 +265,11 @@ def check_close_atoms(folder: str, file_name: str, tolerance: float = -0.5) -> d
     Checks for atoms that are too close to each other, using covalent radii plus tolerance. 
     This tool is useful for validating structures.
     """
-    print("loading atoms")
     atoms = _load_atoms(folder, file_name)
-    print("atoms loaded")
+
     if isinstance(atoms, dict) and "error" in atoms:
         return atoms
 
-    print("calculating neighbor list")
     radii = np.array([covalent_radii[a.number] for a in atoms])
     cutoff = float(radii.max() * 2 + tolerance)
     i, j, d = neighbor_list("ijd", atoms, cutoff)
@@ -267,7 +278,7 @@ def check_close_atoms(folder: str, file_name: str, tolerance: float = -0.5) -> d
     pair_mask = i < j
     close_mask = d < (radii[i] + radii[j] + tolerance)
     mask = pair_mask & close_mask
-    print(f"found {mask.sum()} close pairs")
+
     close_pairs = []
     for idx1, idx2, dist in zip(i[mask], j[mask], d[mask]):
         min_dist = radii[idx1] + radii[idx2] + tolerance
@@ -447,11 +458,3 @@ def build_interface(
         "output_interface_file": _display_path(output_path),
     }
 
-#debug
-if __name__ == "__main__":
-    folder = "sandbox/runtime/"
-    file = "pt_corundum_co2_h2_system.cif"
-
-    check_close_atoms_result = check_close_atoms(folder, file, tolerance=-0.5)
-    print("Check Close Atoms Result:")
-    print(check_close_atoms_result)
