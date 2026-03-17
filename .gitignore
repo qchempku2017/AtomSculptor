@@ -10,3 +10,8 @@ session.db
 # sandbox
 runtime/
 .sandbox_control/
+
+# web
+dist/
+build/
+node_modules/

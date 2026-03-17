@@ -2,17 +2,16 @@
 Web GUI server for AtomSculptor.
 
 Four-panel interface:
-  1. Todo-flow DAG + session info
-  2. Streaming chat (user ↔ agent events)
-  3. 3-D atomic-structure viewer (3Dmol.js)
-  4. Sandbox file explorer
+    1. Todo-flow DAG + session info
+    2. Streaming chat (user ↔ agent events)
+    3. 3-D atomic-structure editor (Three.js)
+    4. Workspace file explorer
 """
 
 import asyncio
 import json
 import traceback
 from datetime import datetime, timezone
-from io import StringIO
 from pathlib import Path
 
 import uvicorn
@@ -181,13 +180,6 @@ async def _close_websocket_quietly(websocket: WebSocket) -> None:
         pass
 
 
-# 3Dmol.js natively understands these formats
-_THREEMOL_NATIVE = {"xyz", "cif", "pdb", "sdf", "mol2"}
-_EXT_TO_FMT = {
-    ".xyz": "xyz", ".cif": "cif", ".pdb": "pdb",
-    ".vasp": "vasp", ".poscar": "vasp", ".extxyz": "xyz",
-    ".mol2": "mol2", ".sdf": "sdf",
-}
 
 
 # ── HTTP routes ──────────────────────────────────────────────────────────────
@@ -232,25 +224,71 @@ async def api_structure(request):
     if not fp.exists() or not fp.is_file():
         return JSONResponse({"error": "not found"}, status_code=404)
 
-    fmt = _EXT_TO_FMT.get(fp.suffix.lower(), "xyz")
     try:
-        content = fp.read_text("utf-8")
-    except UnicodeDecodeError:
-        return JSONResponse({"error": "binary file"}, status_code=400)
+        from ase.io import read as ase_read
+        atoms = ase_read(str(fp))
+    except Exception as exc:
+        return JSONResponse({"error": f"Could not parse structure: {exc}"}, status_code=400)
 
-    # Convert non-native formats via ASE so 3Dmol can render them
-    if fmt not in _THREEMOL_NATIVE:
-        try:
-            from ase.io import read as ase_read, write as ase_write
-            atoms = ase_read(str(fp))
-            sio = StringIO()
-            ase_write(sio, atoms, format="extxyz")
-            content = sio.getvalue()
-            fmt = "xyz"
-        except Exception:
-            pass  # fall through with raw content
+    # Collect unit cell (3x3 matrix, Angstroms) — None if not periodic
+    cell = None
+    # ASE returns NumPy scalar booleans here; cast to native bool for JSON.
+    pbc = [bool(v) for v in atoms.get_pbc()]
+    if any(pbc):
+        cell = atoms.get_cell().tolist()
 
-    return JSONResponse({"content": content, "format": fmt, "path": rel})
+    atom_list = []
+    for i, atom in enumerate(atoms):
+        atom_list.append({
+            "id": i,
+            "symbol": atom.symbol,
+            "x": float(atom.position[0]),
+            "y": float(atom.position[1]),
+            "z": float(atom.position[2]),
+        })
+
+    return JSONResponse({
+        "atoms": atom_list,
+        "cell": cell,
+        "pbc": pbc,
+        "path": rel,
+    })
+
+
+async def api_structure_save(request):
+    """POST /api/structure/save — receive modified atom list, write back via ASE."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+
+    rel = body.get("path", "")
+    atoms_data = body.get("atoms", [])
+    cell = body.get("cell", None)
+    pbc = body.get("pbc", [False, False, False])
+
+    if not rel:
+        return JSONResponse({"error": "path required"}, status_code=400)
+    root = _sandbox_root()
+    fp = (root / rel).resolve()
+    if not _is_path_safe(fp, root):
+        return JSONResponse({"error": "access denied"}, status_code=403)
+
+    try:
+        from ase import Atoms as AseAtoms
+        from ase.io import write as ase_write
+        import numpy as np
+
+        symbols = [a["symbol"] for a in atoms_data]
+        positions = [[a["x"], a["y"], a["z"]] for a in atoms_data]
+        kwargs = {"symbols": symbols, "positions": positions, "pbc": pbc}
+        if cell is not None:
+            kwargs["cell"] = cell
+        new_atoms = AseAtoms(**kwargs)
+        ase_write(str(fp), new_atoms)
+        return JSONResponse({"ok": True, "path": rel, "natoms": len(atoms_data)})
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
 
 
 # ── WebSocket ────────────────────────────────────────────────────────────────
@@ -389,6 +427,7 @@ app = Starlette(
         Route("/api/files", api_files),
         Route("/api/file-content", api_file_content),
         Route("/api/structure", api_structure),
+        Route("/api/structure/save", api_structure_save, methods=["POST"]),
         WebSocketRoute("/ws", ws_chat),
         Mount("/static", StaticFiles(directory=str(_STATIC)), name="static"),
     ],
