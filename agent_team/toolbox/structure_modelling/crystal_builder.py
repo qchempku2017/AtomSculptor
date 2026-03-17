@@ -4,15 +4,25 @@ Supports BCC, FCC, HCP, and other crystal structure types.
 """
 import argparse
 import inspect
-import json
 from pathlib import Path
-from types import NoneType, UnionType
-from typing import Any, Optional, Union, get_args, get_origin
+from typing import Optional
 
 from ase import Atoms
 from ase.build import bulk
 from ase.io import write
 import numpy as np
+
+from agent_team.toolbox.structure_modelling.cli_support import (
+    annotation_to_cli_type,
+    build_cli_parser,
+    run_cli,
+)
+from agent_team.toolbox.structure_modelling.runtime_paths import (
+    display_path,
+    resolve_output_path,
+    sandbox_output_dir,
+    sandbox_root,
+)
 
 
 DEFAULT_SAVE_TYPE = "extxyz"
@@ -27,122 +37,20 @@ def _normalize_file_name(file_name: str) -> str:
 
 
 def _sandbox_root() -> Path:
-    return Path(".").resolve()
+    return sandbox_root()
 
 
 def _sandbox_output_dir() -> Path:
-    output_dir = _sandbox_root()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    return output_dir
+    return sandbox_output_dir()
 
 
 def _display_path(path: Path) -> str:
     """Return sandbox-relative path when possible for cleaner tool output."""
-    resolved = path.expanduser().resolve()
-    root = _sandbox_root()
-    try:
-        return str(resolved.relative_to(root))
-    except ValueError:
-        return str(resolved)
+    return display_path(path)
 
 
 def _resolve_output_path(output_name: str) -> Path:
-    output_path = Path(output_name)
-    if not output_path.is_absolute():
-        output_path = _sandbox_output_dir() / output_path
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    return output_path
-
-
-def _parse_bool(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in {"1", "true", "t", "yes", "y", "on"}:
-            return True
-        if normalized in {"0", "false", "f", "no", "n", "off"}:
-            return False
-    raise ValueError(f"Expected a boolean value, got: {repr(value)}")
-
-
-def _annotation_to_cli_type(annotation: Any) -> str:
-    origin = get_origin(annotation)
-
-    if annotation in (inspect._empty, Any, str):
-        return "string"
-    if annotation is int:
-        return "integer"
-    if annotation is float:
-        return "number"
-    if annotation is bool:
-        return "boolean"
-    if annotation in (list, tuple, dict):
-        return "JSON"
-    if origin in (list, tuple, dict):
-        return "JSON"
-    if origin in (UnionType, Union):
-        args = [arg for arg in get_args(annotation) if arg is not NoneType]
-        if len(args) == 1:
-            return _annotation_to_cli_type(args[0])
-        cli_types = {_annotation_to_cli_type(arg) for arg in args}
-        if len(cli_types) == 1:
-            return cli_types.pop()
-    return "string"
-
-
-def _coerce_cli_value(raw_value: str, annotation: Any) -> Any:
-    origin = get_origin(annotation)
-
-    if annotation in (inspect._empty, Any, str):
-        return raw_value
-    if annotation is int:
-        return int(raw_value)
-    if annotation is float:
-        return float(raw_value)
-    if annotation is bool:
-        return _parse_bool(raw_value)
-    if annotation is list:
-        parsed = json.loads(raw_value)
-        if not isinstance(parsed, list):
-            raise ValueError(f"Expected a JSON list, got: {raw_value}")
-        return parsed
-    if annotation is tuple:
-        parsed = json.loads(raw_value)
-        if not isinstance(parsed, list):
-            raise ValueError(f"Expected a JSON list for tuple input, got: {raw_value}")
-        return tuple(parsed)
-    if annotation is dict:
-        parsed = json.loads(raw_value)
-        if not isinstance(parsed, dict):
-            raise ValueError(f"Expected a JSON object, got: {raw_value}")
-        return parsed
-    if origin is list:
-        parsed = json.loads(raw_value)
-        if not isinstance(parsed, list):
-            raise ValueError(f"Expected a JSON list, got: {raw_value}")
-        return parsed
-    if origin is tuple:
-        parsed = json.loads(raw_value)
-        if not isinstance(parsed, list):
-            raise ValueError(f"Expected a JSON list for tuple input, got: {raw_value}")
-        return tuple(parsed)
-    if origin is dict:
-        parsed = json.loads(raw_value)
-        if not isinstance(parsed, dict):
-            raise ValueError(f"Expected a JSON object, got: {raw_value}")
-        return parsed
-    if origin in (UnionType, Union):
-        args = [arg for arg in get_args(annotation) if arg is not NoneType]
-        last_error = None
-        for arg in args:
-            try:
-                return _coerce_cli_value(raw_value, arg)
-            except Exception as exc:
-                last_error = exc
-        if last_error is not None:
-            raise ValueError(str(last_error)) from last_error
-    return json.loads(raw_value)
+    return resolve_output_path(output_name)
 
 
 TOOL_FUNCTION_NAMES = [
@@ -296,13 +204,13 @@ def _build_tool_summary(function_name, function):
     parts = []
     for parameter in signature.parameters.values():
         cli_name = f"--{parameter.name.replace('_', '-')}"
-        cli_type = _annotation_to_cli_type(parameter.annotation)
+        cli_type = annotation_to_cli_type(parameter.annotation)
         if parameter.default is inspect._empty:
             parts.append(f"{cli_name} <{cli_type}>")
         else:
             parts.append(f"[{cli_name} <{cli_type}>]")
     usage = " ".join(parts)
-    return f"{function_name}: {summary}\n  python crystal_builder.py {function_name} {usage}".rstrip()
+    return f"{function_name}: {summary}\n  python3 crystal_builder.py {function_name} {usage}".rstrip()
 
 
 def _build_cli_parser():
@@ -319,77 +227,21 @@ def _build_cli_parser():
         description_lines.append(f"  - {tool_name}: {summary}")
     
     description_lines.append("")
-    description_lines.append("Use 'python crystal_builder.py <tool_name> --help' for detailed help.")
+    description_lines.append("Use 'python3 crystal_builder.py <tool_name> --help' for detailed help.")
 
-    parser = argparse.ArgumentParser(
+    return build_cli_parser(
         prog="crystal_builder.py",
-        description="\n".join(description_lines),
-        formatter_class=argparse.RawTextHelpFormatter,
+        description_lines=description_lines,
+        tool_functions=_tool_functions(),
     )
-    subparsers = parser.add_subparsers(dest="tool_name", metavar="tool_name")
-
-    for tool_name, function in _tool_functions().items():
-        tool_doc = inspect.getdoc(function) or ""
-        tool_parser = subparsers.add_parser(
-            tool_name,
-            help=tool_doc.splitlines()[0] if tool_doc else tool_name,
-            description=tool_doc,
-            formatter_class=argparse.RawTextHelpFormatter,
-        )
-
-        for parameter in inspect.signature(function).parameters.values():
-            cli_flag = f"--{parameter.name.replace('_', '-')}"
-            cli_type = _annotation_to_cli_type(parameter.annotation)
-            help_text = f"{parameter.name} ({cli_type})"
-            if parameter.default is not inspect._empty:
-                help_text += f". Default: {repr(parameter.default)}"
-            if cli_type == "JSON":
-                help_text += ". Pass JSON, for example '[1, 0, 0]'"
-
-            tool_parser.add_argument(
-                cli_flag,
-                dest=parameter.name,
-                required=parameter.default is inspect._empty,
-                help=help_text,
-            )
-
-        tool_parser.epilog = (
-            "Examples:\n"
-            f"  python crystal_builder.py {tool_name} --help\n"
-            f"  python crystal_builder.py {tool_name} "
-            + " ".join(
-                f"--{parameter.name.replace('_', '-')} <{_annotation_to_cli_type(parameter.annotation)}>"
-                for parameter in inspect.signature(function).parameters.values()
-            )
-        )
-
-    return parser
 
 
 def _run_cli(argv=None):
-    parser = _build_cli_parser()
-    args = parser.parse_args(argv)
-
-    if not getattr(args, "tool_name", None):
-        parser.print_help()
-        return 0
-
-    function = _tool_functions()[args.tool_name]
-    signature = inspect.signature(function)
-
-    try:
-        kwargs = {}
-        for parameter in signature.parameters.values():
-            raw_value = getattr(args, parameter.name)
-            if raw_value is None:
-                continue
-            kwargs[parameter.name] = _coerce_cli_value(raw_value, parameter.annotation)
-    except Exception as exc:
-        parser.error(str(exc))
-
-    result = function(**kwargs)
-    print(json.dumps(result, indent=2, sort_keys=True))
-    return 0 if not isinstance(result, dict) or "error" not in result else 1
+    return run_cli(
+        argv=argv,
+        parser=_build_cli_parser(),
+        tool_functions=_tool_functions(),
+    )
 
 
 if __name__ == "__main__":

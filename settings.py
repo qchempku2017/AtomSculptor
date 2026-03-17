@@ -75,7 +75,7 @@ class Settings:
             "CODE_ANALYZER_MODEL", self._data.get("CODE_ANALYZER_MODEL", "openai/qwen3-max")
         )
         self.SANDBOX_DIR = os.environ.get(
-            "SANDBOX_DIR", self._data.get("SANDBOX_DIR", "sandbox/runtime")
+            "SANDBOX_DIR", self._data.get("SANDBOX_DIR", "sandbox/.runtime")
         )
 
         # Code-graph-rag settings

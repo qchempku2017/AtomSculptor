@@ -8,7 +8,7 @@ MP_SEARCHER_MODEL: "openai/glm-5"
 CODE_ANALYZER_MODEL: "openai/glm-5"
 
 # local directory used by sandbox runtime wrapper
-SANDBOX_DIR: "sandbox/runtime"
+SANDBOX_DIR: "sandbox/.runtime"
 
 # ======== Code-graph-rag / Memgraph settings ========
 MEMGRAPH_HOST: "localhost"

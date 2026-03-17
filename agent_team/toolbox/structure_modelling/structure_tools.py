@@ -3,10 +3,9 @@ Tools for working with ASE (Atomic Simulation Environment).
 """
 import argparse
 import inspect
-import json
+import os
 from pathlib import Path
-from types import NoneType, UnionType
-from typing import Any, Optional, Union, get_args, get_origin
+from typing import Any, Optional
 
 from ase import Atoms
 from ase.build import surface, make_supercell
@@ -14,13 +13,34 @@ from ase.data import covalent_radii
 from ase.io import read, write
 from ase.neighborlist import neighbor_list
 from ase.visualize.plot import plot_atoms
-import matplotlib.pyplot as plt
 import numpy as np
 
 from pymatgen.analysis.interfaces.substrate_analyzer import SubstrateAnalyzer
 from pymatgen.analysis.interfaces.coherent_interfaces import CoherentInterfaceBuilder
 from pymatgen.io.ase import AseAtomsAdaptor
 from pymatgen.io.cif import CifParser
+
+from agent_team.toolbox.structure_modelling.cli_support import (
+    annotation_to_cli_type,
+    build_cli_parser,
+    coerce_cli_value,
+    parse_bool,
+    parse_json_or_raw,
+    run_cli,
+)
+from agent_team.toolbox.structure_modelling.runtime_paths import (
+    display_path,
+    resolve_output_path,
+    sandbox_output_dir,
+    sandbox_root,
+)
+
+
+_MPL_CONFIG_DIR = sandbox_output_dir() / ".mplconfig"
+_MPL_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("MPLCONFIGDIR", str(_MPL_CONFIG_DIR))
+
+import matplotlib.pyplot as plt
 
 
 _LARGE_CIF_SIZE_BYTES = 1_000_000
@@ -48,23 +68,16 @@ TOOL_FUNCTION_NAMES = [
 
 
 def _sandbox_root() -> Path:
-    return Path(".").resolve()
+    return sandbox_root()
 
 
 def _sandbox_output_dir() -> Path:
-    output_dir = _sandbox_root()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    return output_dir
+    return sandbox_output_dir()
 
 
 def _display_path(path: Path) -> str:
     """Return sandbox-relative path when possible for cleaner tool output."""
-    resolved = path.expanduser().resolve()
-    root = _sandbox_root()
-    try:
-        return str(resolved.relative_to(root))
-    except ValueError:
-        return str(resolved)
+    return display_path(path)
 
 
 def _iter_path_candidates(path_str: str) -> list[Path]:
@@ -95,109 +108,23 @@ def _resolve_existing_file(path_str: str) -> Path | None:
 
 
 def _resolve_output_path(output_name: str) -> Path:
-    output_path = Path(output_name)
-    if not output_path.is_absolute():
-        output_path = _sandbox_output_dir() / output_path
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    return output_path
+    return resolve_output_path(output_name)
 
 
 def _parse_json_or_raw(value: str) -> Any:
-    try:
-        return json.loads(value)
-    except json.JSONDecodeError:
-        return value
+    return parse_json_or_raw(value)
 
 
 def _parse_bool(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in {"1", "true", "t", "yes", "y", "on"}:
-            return True
-        if normalized in {"0", "false", "f", "no", "n", "off"}:
-            return False
-    raise ValueError(f"Expected a boolean value, got: {value!r}")
+    return parse_bool(value)
 
 
 def _annotation_to_cli_type(annotation: Any) -> str:
-    origin = get_origin(annotation)
-
-    if annotation in (inspect._empty, Any, str):
-        return "string"
-    if annotation is int:
-        return "integer"
-    if annotation is float:
-        return "number"
-    if annotation is bool:
-        return "boolean"
-    if annotation in (list, tuple, dict):
-        return "JSON"
-    if origin in (list, tuple, dict):
-        return "JSON"
-    if origin in (UnionType, Union):
-        args = [arg for arg in get_args(annotation) if arg is not NoneType]
-        if len(args) == 1:
-            return _annotation_to_cli_type(args[0])
-        cli_types = {_annotation_to_cli_type(arg) for arg in args}
-        if len(cli_types) == 1:
-            return cli_types.pop()
-    return "string"
+    return annotation_to_cli_type(annotation)
 
 
 def _coerce_cli_value(raw_value: str, annotation: Any) -> Any:
-    origin = get_origin(annotation)
-
-    if annotation in (inspect._empty, Any, str):
-        return raw_value
-    if annotation is int:
-        return int(raw_value)
-    if annotation is float:
-        return float(raw_value)
-    if annotation is bool:
-        return _parse_bool(raw_value)
-    if annotation is list:
-        parsed = _parse_json_or_raw(raw_value)
-        if not isinstance(parsed, list):
-            raise ValueError(f"Expected a JSON list, got: {raw_value}")
-        return parsed
-    if annotation is tuple:
-        parsed = _parse_json_or_raw(raw_value)
-        if not isinstance(parsed, list):
-            raise ValueError(f"Expected a JSON list for tuple input, got: {raw_value}")
-        return tuple(parsed)
-    if annotation is dict:
-        parsed = _parse_json_or_raw(raw_value)
-        if not isinstance(parsed, dict):
-            raise ValueError(f"Expected a JSON object, got: {raw_value}")
-        return parsed
-    if origin is list:
-        parsed = _parse_json_or_raw(raw_value)
-        if not isinstance(parsed, list):
-            raise ValueError(f"Expected a JSON list, got: {raw_value}")
-        return parsed
-    if origin is tuple:
-        parsed = _parse_json_or_raw(raw_value)
-        if not isinstance(parsed, list):
-            raise ValueError(f"Expected a JSON list for tuple input, got: {raw_value}")
-        return tuple(parsed)
-    if origin is dict:
-        parsed = _parse_json_or_raw(raw_value)
-        if not isinstance(parsed, dict):
-            raise ValueError(f"Expected a JSON object, got: {raw_value}")
-        return parsed
-    if origin in (UnionType, Union):
-        args = [arg for arg in get_args(annotation) if arg is not NoneType]
-        last_error: Exception | None = None
-        for arg in args:
-            try:
-                return _coerce_cli_value(raw_value, arg)
-            except Exception as exc:
-                last_error = exc
-        if last_error is not None:
-            raise ValueError(str(last_error)) from last_error
-    return _parse_json_or_raw(raw_value)
+    return coerce_cli_value(raw_value, annotation)
 
 
 def _tool_functions() -> dict[str, Any]:
@@ -217,7 +144,7 @@ def _build_tool_summary(function_name: str, function: Any) -> str:
         else:
             parts.append(f"[{cli_name} <{cli_type}>]")
     usage = " ".join(parts)
-    return f"{function_name}: {summary}\n  python structure_tools.py {function_name} {usage}".rstrip()
+    return f"{function_name}: {summary}\n  python3 structure_tools.py {function_name} {usage}".rstrip()
 
 
 def _build_cli_parser() -> argparse.ArgumentParser:
@@ -227,75 +154,19 @@ def _build_cli_parser() -> argparse.ArgumentParser:
         "",
     ]
 
-    parser = argparse.ArgumentParser(
+    return build_cli_parser(
         prog="structure_tools.py",
-        description="\n".join(description_lines),
-        formatter_class=argparse.RawTextHelpFormatter,
+        description_lines=description_lines,
+        tool_functions=_tool_functions(),
     )
-    subparsers = parser.add_subparsers(dest="tool_name", metavar="tool_name")
-
-    for tool_name, function in _tool_functions().items():
-        tool_doc = inspect.getdoc(function) or ""
-        tool_parser = subparsers.add_parser(
-            tool_name,
-            help=tool_doc.splitlines()[0] if tool_doc else tool_name,
-            description=tool_doc,
-            formatter_class=argparse.RawTextHelpFormatter,
-        )
-
-        for parameter in inspect.signature(function).parameters.values():
-            cli_flag = f"--{parameter.name.replace('_', '-')}"
-            cli_type = _annotation_to_cli_type(parameter.annotation)
-            help_text = f"{parameter.name} ({cli_type})"
-            if parameter.default is not inspect._empty:
-                help_text += f". Default: {parameter.default!r}"
-            if cli_type == "JSON":
-                help_text += ". Pass JSON, for example '[1, 0, 0]'"
-
-            tool_parser.add_argument(
-                cli_flag,
-                dest=parameter.name,
-                required=parameter.default is inspect._empty,
-                help=help_text,
-            )
-
-        tool_parser.epilog = (
-            "Examples:\n"
-            f"  python structure_tools.py {tool_name} --help\n"
-            f"  python structure_tools.py {tool_name} "
-            + " ".join(
-                f"--{parameter.name.replace('_', '-')} <{_annotation_to_cli_type(parameter.annotation)}>"
-                for parameter in inspect.signature(function).parameters.values()
-            )
-        )
-
-    return parser
 
 
 def _run_cli(argv: list[str] | None = None) -> int:
-    parser = _build_cli_parser()
-    args = parser.parse_args(argv)
-
-    if not getattr(args, "tool_name", None):
-        parser.print_help()
-        return 0
-
-    function = _tool_functions()[args.tool_name]
-    signature = inspect.signature(function)
-
-    try:
-        kwargs = {}
-        for parameter in signature.parameters.values():
-            raw_value = getattr(args, parameter.name)
-            if raw_value is None:
-                continue
-            kwargs[parameter.name] = _coerce_cli_value(raw_value, parameter.annotation)
-    except Exception as exc:
-        parser.error(str(exc))
-
-    result = function(**kwargs)
-    print(json.dumps(result, indent=2, sort_keys=True))
-    return 0 if not isinstance(result, dict) or "error" not in result else 1
+    return run_cli(
+        argv=argv,
+        parser=_build_cli_parser(),
+        tool_functions=_tool_functions(),
+    )
 
 
 def _load_atoms(folder: str, file_name: str) -> Atoms:

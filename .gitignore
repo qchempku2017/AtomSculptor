@@ -9,6 +9,7 @@ session.db
 
 # sandbox
 runtime/
+.runtime/
 .sandbox_control/
 
 # web
