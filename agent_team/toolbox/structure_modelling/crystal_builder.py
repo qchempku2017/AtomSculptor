@@ -12,12 +12,12 @@ from ase.build import bulk
 from ase.io import write
 import numpy as np
 
-from agent_team.toolbox.structure_modelling.cli_support import (
+from sandbox.cli_support import (
     annotation_to_cli_type,
     build_cli_parser,
     run_cli,
 )
-from agent_team.toolbox.structure_modelling.runtime_paths import (
+from sandbox.runtime_paths import (
     display_path,
     resolve_output_path,
     sandbox_output_dir,

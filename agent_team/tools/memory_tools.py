@@ -109,6 +109,12 @@ def read_note_file(file_name: str, tool_context: ToolContext) -> dict:
     
     return {"content": content}
 
+def list_current_instructions(tool_context: ToolContext) -> dict:
+    """List all current instruction files in the instructions path."""
+    instructions_path.mkdir(parents=True, exist_ok=True)
+    instruction_files = list(instructions_path.glob("*.md"))
+    return {"instruction_files": [str(instruction_file) for instruction_file in instruction_files]}
+
 
 def write_instructions(instruction_contents: str, instruction_file: str, tool_context: ToolContext) -> dict:
     """Write instructions to a file."""

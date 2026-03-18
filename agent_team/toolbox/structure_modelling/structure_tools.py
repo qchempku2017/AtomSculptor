@@ -20,7 +20,7 @@ from pymatgen.analysis.interfaces.coherent_interfaces import CoherentInterfaceBu
 from pymatgen.io.ase import AseAtomsAdaptor
 from pymatgen.io.cif import CifParser
 
-from agent_team.toolbox.structure_modelling.cli_support import (
+from sandbox.cli_support import (
     annotation_to_cli_type,
     build_cli_parser,
     coerce_cli_value,
@@ -28,7 +28,7 @@ from agent_team.toolbox.structure_modelling.cli_support import (
     parse_json_or_raw,
     run_cli,
 )
-from agent_team.toolbox.structure_modelling.runtime_paths import (
+from sandbox.runtime_paths import (
     display_path,
     resolve_output_path,
     sandbox_output_dir,

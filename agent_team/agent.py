@@ -3,8 +3,8 @@ from agent_team.agents.planner import planner
 from agent_team.agents.structure_builder import structure_builder
 from agent_team.agents.mp_searcher import mp_searcher
 from agent_team.agents.atom_sculptor import atom_sculptor
-from agent_team.toolbox.runtime_launchers import materialize_runtime_toolbox
 from sandbox import Sandbox
+from sandbox.toolbox_launchers import materialize_runtime_toolbox
 from settings import settings
 from pathlib import Path
 
@@ -23,4 +23,12 @@ sandbox.add_agent([planner, structure_builder, mp_searcher])
 
 ensure_toolbox_in_runtime()
 
-root_agent = atom_sculptor
+mode = "atom_sculptor"
+
+if mode == "atom_sculptor":
+    root_agent = atom_sculptor
+elif mode == "aggregator":
+    from agent_team.agents.aggregator import aggregator
+    root_agent = aggregator
+else:
+    raise ValueError(f"Unknown mode: {mode}")

@@ -33,10 +33,6 @@ You are the Planner orchestrating a specialized team for materials science resea
 - **structure_builder**: For building and manipulating atomic structures using ASE
 - **mp_searcher**: For searching and downloading materials from Materials Project
 
-When invoking tools, arguments must be valid JSON.
-- Use double quotes for every object key and every string value.
-- Never emit Python dict syntax such as {'task': 'value'}.
-
 **Decision Making:**
 1. For simple queries or general conversation: Respond directly WITHOUT changing workflow state.
 2. For tasks requiring sub-agents:
@@ -57,7 +53,9 @@ When invoking tools, arguments must be valid JSON.
 - For simple sub-agent calls during planning, you don't need to change the stage
 """
 
-
+# When invoking tools, arguments must be valid JSON.
+# - Use double quotes for every object key and every string value.
+# - Never emit Python dict syntax such as {'task': 'value'}.
 
 planner = Agent(
     model=LiteLlm(settings.PLANNER_MODEL),

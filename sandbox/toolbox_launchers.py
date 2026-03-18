@@ -2,9 +2,14 @@ import sys
 from pathlib import Path
 
 
-_LAUNCHERS = {
-    "structure_modelling/structure_tools.py": "agent_team.toolbox.structure_modelling.structure_tools",
-    "structure_modelling/crystal_builder.py": "agent_team.toolbox.structure_modelling.crystal_builder",
+_RUNTIME_TOOLBOX_GROUPS = {
+    "structure_modelling": {
+        "launchers": {
+            "structure_tools.py": "agent_team.toolbox.structure_modelling.structure_tools",
+            "crystal_builder.py": "agent_team.toolbox.structure_modelling.crystal_builder",
+        },
+        "docs": ["doc.md"],
+    },
 }
 
 
@@ -35,17 +40,23 @@ def materialize_runtime_toolbox(runtime_dir: str | Path, python_executable: str 
     runtime_toolbox_dir = runtime_root / "toolbox"
     runtime_toolbox_dir.mkdir(parents=True, exist_ok=True)
 
+    source_toolbox_dir = Path(__file__).resolve().parent.parent / "agent_team" / "toolbox"
     launcher_python = Path(python_executable or sys.executable).expanduser()
 
-    for relative_path, module_name in _LAUNCHERS.items():
-        target = runtime_toolbox_dir / relative_path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
-            _launcher_script(module_name, runtime_root, launcher_python),
-            encoding="utf-8",
-        )
+    for group_name, group in _RUNTIME_TOOLBOX_GROUPS.items():
+        group_dir = runtime_toolbox_dir / group_name
+        group_dir.mkdir(parents=True, exist_ok=True)
 
-    source_doc = Path(__file__).resolve().parent / "structure_modelling" / "doc.md"
-    runtime_doc = runtime_toolbox_dir / "structure_modelling" / "doc.md"
-    runtime_doc.parent.mkdir(parents=True, exist_ok=True)
-    runtime_doc.write_text(_runtime_doc(source_doc), encoding="utf-8")
+        for relative_file, module_name in group["launchers"].items():
+            target = group_dir / relative_file
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(
+                _launcher_script(module_name, runtime_root, launcher_python),
+                encoding="utf-8",
+            )
+
+        for doc_name in group.get("docs", []):
+            source_doc = source_toolbox_dir / group_name / doc_name
+            runtime_doc = group_dir / doc_name
+            runtime_doc.parent.mkdir(parents=True, exist_ok=True)
+            runtime_doc.write_text(_runtime_doc(source_doc), encoding="utf-8")
