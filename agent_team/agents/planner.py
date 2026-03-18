@@ -26,9 +26,11 @@ from settings import settings
 from agent_team.agents.structure_builder import structure_builder
 from agent_team.agents.mp_searcher import mp_searcher
 
+SANDBOX_INSTRUCTION_PATH = "instructions"
+SANDBOX_TOOLBOX_DIR = "toolbox"
 
 agent_description = "Planner that manages a specialized team of agents for materials science and code analysis tasks."
-agent_instruction = """
+agent_instruction = f"""
 You are the Planner orchestrating a specialized team for materials science research and code analysis. You have three specialist sub-agents available:
 - **structure_builder**: For building and manipulating atomic structures using ASE
 - **mp_searcher**: For searching and downloading materials from Materials Project
@@ -37,6 +39,7 @@ You are the Planner orchestrating a specialized team for materials science resea
 1. For simple queries or general conversation: Respond directly WITHOUT changing workflow state.
 2. For tasks requiring sub-agents:
 - Properly set the session state
+- **Remember to plan which tools the subagents should use and which instructions they should refer to**; these are located in {SANDBOX_TOOLBOX_DIR} and {SANDBOX_INSTRUCTION_PATH}, respectively.
 - Propose plans using `create_plan` and `revise_plan` tools
 - Construct and update plans iteratively based on results and feedback
 - Dynamically delegate to sub-agents as needed, using the `current_stage` state to manage workflow

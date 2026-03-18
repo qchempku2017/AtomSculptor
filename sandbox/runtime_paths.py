@@ -2,6 +2,13 @@ import os
 from pathlib import Path
 
 
+def _sandbox_root_override() -> Path | None:
+    override = os.environ.get("ATOMSCULPTOR_SANDBOX_ROOT")
+    if override:
+        return Path(override).expanduser().resolve()
+    return None
+
+
 def _settings_sandbox_root() -> Path | None:
     try:
         import settings as settings_module
@@ -17,9 +24,9 @@ def _settings_sandbox_root() -> Path | None:
 
 
 def sandbox_root() -> Path:
-    override = os.environ.get("ATOMSCULPTOR_SANDBOX_ROOT")
+    override = _sandbox_root_override()
     if override:
-        return Path(override).expanduser().resolve()
+        return override
 
     configured = _settings_sandbox_root()
     if configured is not None:
@@ -32,6 +39,16 @@ def sandbox_output_dir() -> Path:
     output_dir = sandbox_root()
     output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir
+
+
+def sandbox_instructions_dir(fallback: Path | None = None) -> Path:
+    root = _sandbox_root_override()
+    if root is None and fallback is not None:
+        instructions_dir = fallback
+    else:
+        instructions_dir = (root or sandbox_root()) / "instructions"
+    instructions_dir.mkdir(parents=True, exist_ok=True)
+    return instructions_dir
 
 
 def display_path(path: Path) -> str:

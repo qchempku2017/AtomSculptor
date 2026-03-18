@@ -35,12 +35,26 @@ def _runtime_doc(source_doc: Path) -> str:
     return header + source_doc.read_text(encoding="utf-8")
 
 
+def _copy_markdown_tree(source_dir: Path, target_dir: Path) -> None:
+    if not source_dir.exists():
+        return
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for source_file in source_dir.rglob("*.md"):
+        if not source_file.is_file():
+            continue
+        target_file = target_dir / source_file.relative_to(source_dir)
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+        target_file.write_text(source_file.read_text(encoding="utf-8"), encoding="utf-8")
+
+
 def materialize_runtime_toolbox(runtime_dir: str | Path, python_executable: str | Path | None = None) -> None:
     runtime_root = Path(runtime_dir).expanduser().resolve()
     runtime_toolbox_dir = runtime_root / "toolbox"
     runtime_toolbox_dir.mkdir(parents=True, exist_ok=True)
 
     source_toolbox_dir = Path(__file__).resolve().parent.parent / "agent_team" / "toolbox"
+    source_instructions_dir = Path(__file__).resolve().parent.parent / "agent_team" / "memories" / "instructions"
     launcher_python = Path(python_executable or sys.executable).expanduser()
 
     for group_name, group in _RUNTIME_TOOLBOX_GROUPS.items():
@@ -60,3 +74,5 @@ def materialize_runtime_toolbox(runtime_dir: str | Path, python_executable: str 
             runtime_doc = group_dir / doc_name
             runtime_doc.parent.mkdir(parents=True, exist_ok=True)
             runtime_doc.write_text(_runtime_doc(source_doc), encoding="utf-8")
+
+    _copy_markdown_tree(source_instructions_dir, runtime_root / "instructions")
