@@ -32,6 +32,8 @@ from .routes import (
     api_file_content,
     api_structure,
     api_structure_save,
+    api_structure_build_surface,
+    api_structure_build_supercell,
 )
 from .websocket_handler import ws_chat
 
@@ -43,8 +45,14 @@ app = Starlette(
         Route("/api/todo-flow", api_todo_flow),
         Route("/api/files", api_files),
         Route("/api/file-content", api_file_content),
-        Route("/api/structure", api_structure),
         Route("/api/structure/save", api_structure_save, methods=["POST"]),
+        Route("/api/structure/build-surface", api_structure_build_surface, methods=["POST"]),
+        Route("/api/structure/build-surface/", api_structure_build_surface, methods=["POST"]),
+        Route("/api/structure/build_surface", api_structure_build_surface, methods=["POST"]),
+        Route("/api/structure/build-supercell", api_structure_build_supercell, methods=["POST"]),
+        Route("/api/structure/build-supercell/", api_structure_build_supercell, methods=["POST"]),
+        Route("/api/structure/build_supercell", api_structure_build_supercell, methods=["POST"]),
+        Route("/api/structure", api_structure, methods=["GET"]),
         WebSocketRoute("/ws", ws_chat),
         Mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static"),
     ],

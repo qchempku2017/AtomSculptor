@@ -20,6 +20,8 @@ export const S = {
   atoms: [],
   cell: null,
   pbc: [false, false, false],
+  undoStack: [],
+  redoStack: [],
 
   atomMeshes: [],
   bondMeshes: [],
@@ -39,6 +41,8 @@ export const STRUCTURE_EXTS = new Set([
   "cif", "xyz", "vasp", "poscar", "extxyz", "pdb", "sdf", "mol2",
 ]);
 export const STRUCTURE_PREFIXES = ["poscar", "contcar"];
+
+export const MAX_UNDO_ENTRIES = 100;
 
 export const STATUS_COLOR = {
   pending: "#858585",

@@ -70,6 +70,9 @@
           <button class="tb-btn" id="tb-add" data-mode="add" data-tip="Add Atom (5)">+</button>
           <button class="tb-btn" id="tb-delete" data-mode="delete" data-tip="Delete (6)">-</button>
           <div class="tb-sep"></div>
+          <button class="tb-btn" id="tb-surface" data-tip="Build Surface">◫</button>
+          <button class="tb-btn" id="tb-supercell" data-tip="Build Supercell">⊞</button>
+          <div class="tb-sep"></div>
           <button class="tb-btn" id="tb-reset" data-tip="Reset View">V</button>
           <button class="tb-btn" id="tb-save" data-tip="Save (Ctrl+S)">💾</button>
         </div>
@@ -79,6 +82,48 @@
           <div id="viewer-empty">Click a structure file<br/>(.cif .xyz .vasp .pdb or POSCAR/CONTCAR) to view</div>
           <div id="add-atom-palette"></div>
           <div id="box-select-overlay"></div>
+
+          <!-- Surface builder panel -->
+          <div id="surface-panel" class="tool-panel">
+            <div class="tool-panel-title">Build Surface</div>
+            <label class="tool-panel-label">Miller Indices (h k l)</label>
+            <div class="tool-panel-row">
+              <input id="sf-h" type="number" value="1" min="-9" max="9" step="1" class="tool-panel-input tool-panel-input-sm"/>
+              <input id="sf-k" type="number" value="0" min="-9" max="9" step="1" class="tool-panel-input tool-panel-input-sm"/>
+              <input id="sf-l" type="number" value="0" min="-9" max="9" step="1" class="tool-panel-input tool-panel-input-sm"/>
+            </div>
+            <label class="tool-panel-label">Layers</label>
+            <input id="sf-layers" type="number" value="3" min="1" max="50" step="1" class="tool-panel-input"/>
+            <label class="tool-panel-label">Vacuum (Å)</label>
+            <input id="sf-vacuum" type="number" value="10.0" min="0" max="100" step="0.5" class="tool-panel-input"/>
+            <div class="tool-panel-actions">
+              <button id="sf-build" class="tool-panel-btn primary">Build</button>
+              <button id="sf-cancel" class="tool-panel-btn">Cancel</button>
+            </div>
+            <div id="sf-error" class="tool-panel-error"></div>
+          </div>
+
+          <!-- Supercell builder panel -->
+          <div id="supercell-panel" class="tool-panel">
+            <div class="tool-panel-title">Build Supercell</div>
+            <label class="tool-panel-label">Supercell Matrix</label>
+            <div class="sc-matrix">
+              <input id="sc-m00" type="number" value="2" step="1" class="tool-panel-input sc-matrix-input sc-matrix-diag"/>
+              <input id="sc-m01" type="number" value="0" step="1" class="tool-panel-input sc-matrix-input"/>
+              <input id="sc-m02" type="number" value="0" step="1" class="tool-panel-input sc-matrix-input"/>
+              <input id="sc-m10" type="number" value="0" step="1" class="tool-panel-input sc-matrix-input"/>
+              <input id="sc-m11" type="number" value="2" step="1" class="tool-panel-input sc-matrix-input sc-matrix-diag"/>
+              <input id="sc-m12" type="number" value="0" step="1" class="tool-panel-input sc-matrix-input"/>
+              <input id="sc-m20" type="number" value="0" step="1" class="tool-panel-input sc-matrix-input"/>
+              <input id="sc-m21" type="number" value="0" step="1" class="tool-panel-input sc-matrix-input"/>
+              <input id="sc-m22" type="number" value="2" step="1" class="tool-panel-input sc-matrix-input sc-matrix-diag"/>
+            </div>
+            <div class="tool-panel-actions">
+              <button id="sc-build" class="tool-panel-btn primary">Build</button>
+              <button id="sc-cancel" class="tool-panel-btn">Cancel</button>
+            </div>
+            <div id="sc-error" class="tool-panel-error"></div>
+          </div>
 
           <div id="atom-info">
             <div class="ai-title" id="ai-title">Atom</div>

@@ -12,7 +12,11 @@ import { $ } from "./utils.js";
 import {
   computeCentroid, rebuildScene, setOrbitEnabled, updateAtomVisuals,
 } from "./viewer.js";
-import { updateStatusBar } from "./structure.js";
+import {
+  recordStructureEdit,
+  snapshotStructureState,
+  updateStatusBar,
+} from "./structure.js";
 
 /* ── internal state ─────────────────────────────────────────────────────── */
 
@@ -23,6 +27,7 @@ let pivot = null;   // THREE.Object3D – gizmo target
 let snap = null;
 // { atoms: Map<id,{x,y,z}>, meshes: Map<id,Vector3>,
 //   pivotPos: Vector3, pivotQuat: Quaternion, centroid: {x,y,z} }
+let structureEditStart = null;
 
 /* ── helpers ────────────────────────────────────────────────────────────── */
 
@@ -148,9 +153,12 @@ export function initGizmo() {
   gizmo.addEventListener("dragging-changed", (ev) => {
     setOrbitEnabled(!ev.value);
     if (ev.value) {
+      structureEditStart = snapshotStructureState();
       takeSnapshot();
     } else {
       snap = null;
+      recordStructureEdit(structureEditStart);
+      structureEditStart = null;
       S.gizmoJustDragged = true;
       rebuildScene();
       updateGizmo();
@@ -202,6 +210,7 @@ export function nudgeTransform(direction) {
 
   const sel = selectedAtoms();
   if (!sel.length) return;
+  const beforeState = snapshotStructureState();
 
   // Camera-relative screen axes
   const camDir = new THREE.Vector3();
@@ -246,6 +255,7 @@ export function nudgeTransform(direction) {
   }
 
   rebuildScene();
+  recordStructureEdit(beforeState);
   updateGizmo();
   updateStatusBar();
 }

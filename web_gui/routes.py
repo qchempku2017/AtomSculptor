@@ -6,7 +6,7 @@ from starlette.responses import HTMLResponse, JSONResponse
 
 from .helpers import STATIC_DIR, asset_url, is_path_safe
 from .filesystem import sandbox_root, build_file_tree
-from .structure import read_structure, write_structure
+from .structure import read_structure, write_structure, resolve_ase_io_format
 from .todo import serialize_todo_flow
 
 
@@ -82,5 +82,124 @@ async def api_structure_save(request):
     try:
         natoms = write_structure(fp, atoms_data, cell, pbc)
         return JSONResponse({"ok": True, "path": rel, "natoms": natoms})
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+def _read_atoms_safe(fp: Path):
+    """Read an ASE Atoms object from *fp* with format auto-detection."""
+    from ase.io import read as ase_read
+
+    ase_format = resolve_ase_io_format(fp)
+    return ase_read(str(fp), format=ase_format)
+
+
+def _output_path_for(root: Path, prefix: str, source: Path) -> Path:
+    """Generate a non-colliding output path inside *root*."""
+    stem = source.stem
+    candidate = root / f"{prefix}_{stem}.extxyz"
+    counter = 1
+    while candidate.exists():
+        candidate = root / f"{prefix}_{stem}_{counter}.extxyz"
+        counter += 1
+    return candidate
+
+
+async def api_structure_build_surface(request):
+    """POST /api/structure/build-surface — create a surface slab from a bulk structure."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+
+    rel = body.get("path", "")
+    miller = body.get("miller_indices", [1, 0, 0])
+    layers = body.get("layers", 3)
+    vacuum = body.get("vacuum", 10.0)
+
+    if not rel:
+        return JSONResponse({"error": "path required"}, status_code=400)
+
+    root = sandbox_root()
+    fp = (root / rel).resolve()
+    if not is_path_safe(fp, root):
+        return JSONResponse({"error": "access denied"}, status_code=403)
+    if not fp.exists() or not fp.is_file():
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    try:
+        from ase.build import surface
+        from ase.io import write as ase_write
+
+        atoms = _read_atoms_safe(fp)
+
+        if not isinstance(miller, list) or len(miller) != 3:
+            return JSONResponse({"error": "Miller indices must be a list of 3 integers."}, status_code=400)
+        miller_tuple = tuple(int(m) for m in miller)
+        layers = int(layers)
+        vacuum = float(vacuum)
+
+        if layers < 1:
+            return JSONResponse({"error": "Layers must be at least 1."}, status_code=400)
+        if vacuum < 0:
+            return JSONResponse({"error": "Vacuum must be non-negative."}, status_code=400)
+
+        slab = surface(atoms, miller_tuple, layers, vacuum=vacuum)
+
+        output_path = _output_path_for(root, "slab", fp)
+        ase_write(str(output_path), slab, format="extxyz")
+
+        data = read_structure(output_path)
+        data["path"] = str(output_path.relative_to(root))
+        return JSONResponse(data)
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+async def api_structure_build_supercell(request):
+    """POST /api/structure/build-supercell — create a supercell from current structure."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+
+    rel = body.get("path", "")
+    matrix = body.get("matrix")
+
+    if not rel:
+        return JSONResponse({"error": "path required"}, status_code=400)
+
+    root = sandbox_root()
+    fp = (root / rel).resolve()
+    if not is_path_safe(fp, root):
+        return JSONResponse({"error": "access denied"}, status_code=403)
+    if not fp.exists() or not fp.is_file():
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    try:
+        from ase.build import make_supercell
+        from ase.io import write as ase_write
+        import numpy as np
+
+        atoms = _read_atoms_safe(fp)
+
+        if (
+            not isinstance(matrix, list)
+            or len(matrix) != 3
+            or any(not isinstance(row, list) or len(row) != 3 for row in matrix)
+        ):
+            return JSONResponse({"error": "matrix must be a 3×3 array of integers."}, status_code=400)
+        mat = np.array([[int(v) for v in row] for row in matrix])
+        if int(round(abs(np.linalg.det(mat)))) < 1:
+            return JSONResponse({"error": "Supercell matrix must have a non-zero determinant."}, status_code=400)
+
+        supercell = make_supercell(atoms, mat)
+
+        output_path = _output_path_for(root, "supercell", fp)
+        ase_write(str(output_path), supercell, format="extxyz")
+
+        data = read_structure(output_path)
+        data["path"] = str(output_path.relative_to(root))
+        return JSONResponse(data)
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)

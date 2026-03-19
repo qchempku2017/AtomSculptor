@@ -7,10 +7,21 @@ import { S } from "./state.js";
 import { $, $$ } from "./utils.js";
 import {
   raycastAtoms, atomIdFromMesh, setOrbitEnabled,
-  rebuildScene, updateAtomVisuals,
+  updateAtomVisuals,
   elemColor, resetCamera, setViewDirection,
 } from "./viewer.js";
-import { updateStatusBar, deleteAtomById, deleteSelected, saveStructure } from "./structure.js";
+import {
+  addAtom,
+  buildSurface,
+  buildSupercell,
+  deleteAtomById,
+  deleteSelected,
+  redoStructureEdit,
+  saveStructure,
+  snapshotStructureState,
+  undoStructureEdit,
+  updateStatusBar,
+} from "./structure.js";
 import { updateGizmo, nudgeTransform, isGizmoActive } from "./gizmo.js";
 
 const TRANSFORM_MODES = new Set(["translate", "rotate", "scale"]);
@@ -84,16 +95,14 @@ function onAddClick(e) {
   if (!hitAtom) return;
 
   const newId = S.atoms.length ? Math.max(...S.atoms.map((a) => a.id)) + 1 : 0;
-  S.atoms.push({
+  const beforeState = snapshotStructureState();
+  addAtom({
     id: newId,
     symbol: S.addElement,
     x: hitAtom.x + (norm.x * bondLen),
     y: hitAtom.y + (norm.y * bondLen),
     z: hitAtom.z + (norm.z * bondLen),
-  });
-
-  rebuildScene();
-  updateStatusBar();
+  }, beforeState);
 }
 
 // ── Box Select ──────────────────────────────────────────────────────────────
@@ -340,6 +349,10 @@ export function setMode(mode) {
   } else {
     palette.classList.remove("show");
   }
+
+  // Hide tool panels when switching modes
+  $("#surface-panel").classList.remove("show");
+  $("#supercell-panel").classList.remove("show");
 }
 
 export function wireToolbar() {
@@ -356,6 +369,120 @@ export function wireToolbar() {
     if (S.mode === "delete") { deleteSelected(); updateGizmo(); }
     else setMode("delete");
   });
+
+  // ── Surface builder panel ──
+  $("#tb-surface").addEventListener("click", () => {
+    const panel = $("#surface-panel");
+    $("#supercell-panel").classList.remove("show");
+    panel.classList.toggle("show");
+    $("#sf-error").classList.remove("show");
+  });
+
+  $("#sf-cancel").addEventListener("click", () => {
+    $("#surface-panel").classList.remove("show");
+  });
+
+  $("#sf-build").addEventListener("click", async () => {
+    const errEl = $("#sf-error");
+    errEl.classList.remove("show");
+
+    if (!S.structPath) {
+      errEl.textContent = "Load a structure first.";
+      errEl.classList.add("show");
+      return;
+    }
+
+    const h = parseInt($("#sf-h").value, 10);
+    const k = parseInt($("#sf-k").value, 10);
+    const l = parseInt($("#sf-l").value, 10);
+    const layers = parseInt($("#sf-layers").value, 10);
+    const vacuum = parseFloat($("#sf-vacuum").value);
+
+    if ([h, k, l].some(v => isNaN(v))) {
+      errEl.textContent = "Miller indices must be integers.";
+      errEl.classList.add("show");
+      return;
+    }
+    if (h === 0 && k === 0 && l === 0) {
+      errEl.textContent = "Miller indices cannot all be zero.";
+      errEl.classList.add("show");
+      return;
+    }
+
+    const btn = $("#sf-build");
+    btn.disabled = true;
+    btn.textContent = "Building...";
+    try {
+      const result = await buildSurface([h, k, l], layers, vacuum);
+      if (result.error) {
+        errEl.textContent = result.error;
+        errEl.classList.add("show");
+      } else {
+        $("#surface-panel").classList.remove("show");
+      }
+    } catch (e) {
+      errEl.textContent = String(e);
+      errEl.classList.add("show");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Build";
+    }
+  });
+
+  // ── Supercell builder panel ──
+  $("#tb-supercell").addEventListener("click", () => {
+    const panel = $("#supercell-panel");
+    $("#surface-panel").classList.remove("show");
+    panel.classList.toggle("show");
+    $("#sc-error").classList.remove("show");
+  });
+
+  $("#sc-cancel").addEventListener("click", () => {
+    $("#supercell-panel").classList.remove("show");
+  });
+
+  $("#sc-build").addEventListener("click", async () => {
+    const errEl = $("#sc-error");
+    errEl.classList.remove("show");
+
+    if (!S.structPath) {
+      errEl.textContent = "Load a structure first.";
+      errEl.classList.add("show");
+      return;
+    }
+
+    const ids = [
+      ["sc-m00", "sc-m01", "sc-m02"],
+      ["sc-m10", "sc-m11", "sc-m12"],
+      ["sc-m20", "sc-m21", "sc-m22"],
+    ];
+    const matrix = ids.map((row) => row.map((id) => parseInt($("#" + id).value, 10)));
+
+    if (matrix.flat().some((v) => isNaN(v))) {
+      errEl.textContent = "All matrix entries must be integers.";
+      errEl.classList.add("show");
+      return;
+    }
+
+    const btn = $("#sc-build");
+    btn.disabled = true;
+    btn.textContent = "Building...";
+    try {
+      const result = await buildSupercell(matrix);
+      if (result.error) {
+        errEl.textContent = result.error;
+        errEl.classList.add("show");
+      } else {
+        $("#supercell-panel").classList.remove("show");
+      }
+    } catch (e) {
+      errEl.textContent = String(e);
+      errEl.classList.add("show");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Build";
+    }
+  });
 }
 
 // ── Keyboard shortcuts ──────────────────────────────────────────────────────
@@ -363,6 +490,22 @@ export function wireToolbar() {
 export function wireKeyboardShortcuts() {
   document.addEventListener("keydown", (e) => {
     if (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT") return;
+
+    if (e.ctrlKey || e.metaKey) {
+      const key = e.key.toLowerCase();
+
+      if (key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        if (undoStructureEdit()) updateGizmo();
+        return;
+      }
+
+      if (key === "y" || (key === "z" && e.shiftKey)) {
+        e.preventDefault();
+        if (redoStructureEdit()) updateGizmo();
+        return;
+      }
+    }
 
     // ── Fine adjustment (WASD + arrows) when in a transform mode with selection ──
     if (TRANSFORM_MODES.has(S.mode) && S.selected.size > 0) {

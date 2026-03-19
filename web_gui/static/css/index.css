@@ -554,6 +554,95 @@ body.col-dragging { cursor: col-resize !important; user-select: none; }
 }
 .tree-toggle.open { transform: rotate(90deg); }
 
+/* ── Tool panels (Surface, Supercell) ──────────────────────────────────── */
+.tool-panel {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 120;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 200px;
+  max-width: 260px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+.tool-panel.show { display: flex; }
+.tool-panel-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent-l);
+  margin-bottom: 2px;
+}
+.tool-panel-label {
+  font-size: 10px;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.tool-panel-row {
+  display: flex;
+  gap: 4px;
+}
+.tool-panel-input {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg1);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  outline: none;
+}
+.tool-panel-input:focus { border-color: var(--accent); }
+.tool-panel-input-sm { width: 52px; text-align: center; }
+.sc-matrix {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+.sc-matrix-input {
+  width: 100%;
+  text-align: center;
+  padding: 4px 2px;
+  min-width: 0;
+}
+.sc-matrix-diag {
+  border-color: var(--accent) !important;
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg1)) !important;
+}
+.tool-panel-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+.tool-panel-btn {
+  flex: 1;
+  padding: 5px 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg3);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tool-panel-btn:hover { background: var(--bg-hover); }
+.tool-panel-btn.primary { background: var(--accent); border-color: var(--accent-l); color: #fff; }
+.tool-panel-btn.primary:hover { background: var(--accent-l); }
+.tool-panel-btn:disabled { opacity: 0.5; cursor: default; }
+.tool-panel-error {
+  font-size: 11px;
+  color: var(--s-blocked);
+  display: none;
+}
+.tool-panel-error.show { display: block; }
+
 @media (max-width: 1180px) {
   #app {
     grid-template-columns: 1fr 4px 1fr;
