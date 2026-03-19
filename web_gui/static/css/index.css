@@ -57,6 +57,32 @@ html, body {
 }
 
 #header .logo { font-weight: 700; font-size: 14px; color: var(--accent-l); letter-spacing: 0.5px; }
+#aggregator-hint {
+  font-size: 11px;
+  color: var(--text2);
+}
+#header .header-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg1);
+}
+#header .header-pill.running {
+  color: #2a1e00;
+  background: #ffcf70;
+  border-color: #ffb74d;
+}
+#header .header-pill.idle {
+  color: var(--text3);
+}
+#header .header-pill.error {
+  color: #ffd7d7;
+  background: #5a2323;
+  border-color: #e57373;
+}
 #header .status { margin-left: auto; font-size: 11px; color: var(--text3); }
 #header .dot {
   display: inline-block;

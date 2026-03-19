@@ -5,9 +5,10 @@ from google.adk.models.lite_llm import LiteLlm
 from agent_team.tools.memory_tools import (
     list_all_note_files,
     read_note_file,
-    # list_current_instructions,
+    read_instruction,
     write_instructions,
-    update_instruction
+    update_instruction,
+    remove_outdated_instruction
 )
 from settings import settings
 
@@ -34,6 +35,18 @@ You must:
 4. Produce actionable and unambiguous instructions
 5. Ignore information that is too detailed or specific to a single execution instance
 
+Before creating or updating any instruction file, you MUST:
+
+1. Compare the current task with existing instruction files
+2. Determine if:
+   A. It matches an existing task → UPDATE that file
+   B. It partially overlaps multiple tasks → MERGE them into a more general task
+   C. It is a truly new category → CREATE a new file
+
+You must avoid:
+- Creating duplicate or highly similar instruction files
+- Keeping fragmented instructions that could be unified
+
 Each task instruction must be written as an independent module, and named by the task, such as `interface_building.md`.
 The instructions must have the following sections:
 1. Common Workflow (step-by-step, deterministic if possible)
@@ -42,6 +55,8 @@ The instructions must have the following sections:
 4. Additional Tips (any other insights that could help future agents)
 
 Be concise and information-dense. If the current instructions are too long, try condensing them.
+
+Do NOT create new instruction files unless the task is fundamentally new. Prefer updating or merging existing instructions.
 
 Current available instructions:
 {current_instruction_files_str}
@@ -57,8 +72,10 @@ aggregator = Agent(
         list_all_note_files,
         read_note_file,
         # list_current_instructions,
+        read_instruction,
         write_instructions,
-        update_instruction
+        update_instruction,
+        remove_outdated_instruction
     ],
     output_key="last_aggregator_result",
 )

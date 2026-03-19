@@ -23,12 +23,4 @@ sandbox.add_agent([planner, structure_builder, mp_searcher])
 
 ensure_toolbox_in_runtime()
 
-mode = "atom_sculptor"
-
-if mode == "atom_sculptor":
-    root_agent = atom_sculptor
-elif mode == "aggregator":
-    from agent_team.agents.aggregator import aggregator
-    root_agent = aggregator
-else:
-    raise ValueError(f"Unknown mode: {mode}")
+root_agent = atom_sculptor

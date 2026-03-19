@@ -28,6 +28,7 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
 from agent_team.agent import root_agent
+from agent_team.agents.atom_sculptor import get_aggregator_status
 from agent_team.state import todo_flow
 from settings import settings
 
@@ -213,6 +214,23 @@ async def _close_websocket_quietly(websocket: WebSocket) -> None:
         pass
 
 
+async def _push_aggregator_status(websocket: WebSocket) -> None:
+    last_sent: dict | None = None
+    while True:
+        status = get_aggregator_status()
+        if status != last_sent:
+            if not await _send_json_or_stop(
+                websocket,
+                {
+                    "type": "aggregator_status",
+                    "data": status,
+                },
+            ):
+                return
+            last_sent = status
+        await asyncio.sleep(0.75)
+
+
 
 
 # ── HTTP routes ──────────────────────────────────────────────────────────────
@@ -336,6 +354,7 @@ async def api_structure_save(request):
 async def ws_chat(websocket: WebSocket):
     await websocket.accept()
     user_id = "web_user"
+    status_task: asyncio.Task | None = None
 
     # Create ADK session
     try:
@@ -366,6 +385,8 @@ async def ws_chat(websocket: WebSocket):
         },
     ):
         return
+
+    status_task = asyncio.create_task(_push_aggregator_status(websocket))
 
     try:
         while True:
@@ -456,6 +477,13 @@ async def ws_chat(websocket: WebSocket):
 
     except WebSocketDisconnect:
         pass
+    finally:
+        if status_task is not None:
+            status_task.cancel()
+            try:
+                await status_task
+            except asyncio.CancelledError:
+                pass
 
 
 # ── Starlette app ────────────────────────────────────────────────────────────

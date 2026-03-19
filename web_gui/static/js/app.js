@@ -3,6 +3,7 @@ const S = {
   cy: null,
   connected: false,
   processing: false,
+  aggregatorStatus: null,
   todoData: { tasks: [], finished: true },
 
   renderer: null,
@@ -192,11 +193,45 @@ function handleMsg(m) {
     case "tool_result": appendToolResult(m.author, m.tool, m.result); break;
     case "todo_flow_update": updateTodo(m.data); break;
     case "files_update": renderFiles(m.data); break;
+    case "aggregator_status": updateAggregatorHint(m.data); break;
     case "done": setProcessing(false); break;
     case "error": appendError(m.text, m.traceback); setProcessing(false); break;
     default:
       break;
   }
+}
+
+function updateAggregatorHint(status) {
+  S.aggregatorStatus = status || null;
+
+  const el = $("#aggregator-hint");
+  if (!el) return;
+
+  if (!status) {
+    el.textContent = "Memory idle";
+    el.className = "header-pill idle";
+    el.title = "Background note aggregation status";
+    return;
+  }
+
+  if (status.running) {
+    const countText = Number.isFinite(status.note_count) ? ` (${status.note_count} notes)` : "";
+    el.textContent = `Memory aggregating${countText}`;
+    el.className = "header-pill running";
+    el.title = status.message || "Aggregating notes into instructions";
+    return;
+  }
+
+  if (status.last_error) {
+    el.textContent = "Memory aggregation failed";
+    el.className = "header-pill error";
+    el.title = status.last_error;
+    return;
+  }
+
+  el.textContent = "Memory idle";
+  el.className = "header-pill idle";
+  el.title = status.message || "Background note aggregation status";
 }
 
 function initGraph() {
