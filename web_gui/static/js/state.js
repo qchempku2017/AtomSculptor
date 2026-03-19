@@ -84,6 +84,6 @@ export const MODE_HINT = {
   translate: "Select atoms then drag gizmo axes · Arrows/WASD to nudge 0.1 Å",
   rotate: "Select atoms then drag gizmo rings · Arrows/WASD to nudge 1°",
   scale: "Select atoms then drag gizmo handles · Arrows/WASD to nudge",
-  add: "Click atom surface to add a neighbor",
+  add: "Pick element and coordinates in the Add Atom panel",
   delete: "Click atom to delete",
 };

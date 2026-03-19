@@ -67,7 +67,7 @@
           <button class="tb-btn" id="tb-rotate" data-mode="rotate" data-tip="Rotate (R)">↺</button>
           <button class="tb-btn" id="tb-scale" data-mode="scale" data-tip="Scale (E)">⤡</button>
           <div class="tb-sep"></div>
-          <button class="tb-btn" id="tb-add" data-mode="add" data-tip="Add Atom (5)">+</button>
+          <button class="tb-btn" id="tb-add" data-tip="Add Atom (5)">+</button>
           <button class="tb-btn" id="tb-delete" data-mode="delete" data-tip="Delete (6)">-</button>
           <div class="tb-sep"></div>
           <button class="tb-btn" id="tb-surface" data-tip="Build Surface">◫</button>
@@ -80,8 +80,25 @@
         <div id="viewer-wrap">
           <canvas id="struct-canvas"></canvas>
           <div id="viewer-empty">Click a structure file<br/>(.cif .xyz .vasp .pdb or POSCAR/CONTCAR) to view</div>
-          <div id="add-atom-palette"></div>
           <div id="box-select-overlay"></div>
+
+          <!-- Add atom panel -->
+          <div id="add-panel" class="tool-panel">
+            <div class="tool-panel-title">Add Atom</div>
+            <label class="tool-panel-label">Periodic Table</label>
+            <div id="add-periodic-table" class="periodic-table"></div>
+            <label class="tool-panel-label">Coordinates (Å)</label>
+            <div class="tool-panel-row">
+              <input id="add-x" type="number" value="0" step="0.01" class="tool-panel-input tool-panel-input-sm"/>
+              <input id="add-y" type="number" value="0" step="0.01" class="tool-panel-input tool-panel-input-sm"/>
+              <input id="add-z" type="number" value="0" step="0.01" class="tool-panel-input tool-panel-input-sm"/>
+            </div>
+            <div class="tool-panel-actions">
+              <button id="add-build" class="tool-panel-btn primary">Add</button>
+              <button id="add-cancel" class="tool-panel-btn">Cancel</button>
+            </div>
+            <div id="add-error" class="tool-panel-error"></div>
+          </div>
 
           <!-- Surface builder panel -->
           <div id="surface-panel" class="tool-panel">
