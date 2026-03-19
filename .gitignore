@@ -8,7 +8,7 @@ session.db
 .adk/
 
 # sandbox
-runtime/
+.runtime/
 .sandbox_control/
 
 # web

@@ -4,22 +4,28 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>AtomSculptor</title>
-<link rel="stylesheet" href="/static/css/index.css"/>
+<link rel="stylesheet" href="__INDEX_CSS__"/>
 
 <script src="https://cdn.jsdelivr.net/npm/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/TransformControls.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js"></script>
-<script defer src="/static/js/app.js"></script>
+<script defer src="__APP_JS__" type="module"></script>
 </head>
 <body>
 <div id="app">
   <div id="header">
     <span class="logo">AtomSculptor</span>
+    <span id="aggregator-hint" class="header-pill idle" title="Background note aggregation status">Memory idle</span>
     <span class="status"><span class="dot" id="ws-dot"></span><span id="ws-label">Connecting...</span></span>
   </div>
+
+  <div class="col-divider" id="col-div-0"></div>
+  <div class="col-divider" id="col-div-1"></div>
+  <div class="col-divider" id="col-div-2"></div>
 
   <div class="panel" id="panel-todo">
     <div class="panel-hdr"><span>Task Flow</span><button id="btn-refresh-todo" title="Refresh">↻</button></div>
@@ -56,23 +62,68 @@
       <div id="struct-wrap">
         <div id="edit-toolbar">
           <button class="tb-btn active" id="tb-orbit" data-mode="orbit" data-tip="Orbit (1)">◯</button>
-          <button class="tb-btn" id="tb-select" data-mode="select" data-tip="Select (2)">S</button>
-          <button class="tb-btn" id="tb-box" data-mode="box" data-tip="Box Select (3)">B</button>
-          <button class="tb-btn" id="tb-drag" data-mode="drag" data-tip="Drag Atom (4)">D</button>
-          <button class="tb-btn" id="tb-rotate" data-mode="rotate" data-tip="Rotate Selected (5)">R</button>
+          <button class="tb-btn" id="tb-box" data-mode="box" data-tip="Box Select (2)">⛶</button>
+          <button class="tb-btn" id="tb-translate" data-mode="translate" data-tip="Translate (W)">✥</button>
+          <button class="tb-btn" id="tb-rotate" data-mode="rotate" data-tip="Rotate (R)">↺</button>
+          <button class="tb-btn" id="tb-scale" data-mode="scale" data-tip="Scale (E)">⤡</button>
           <div class="tb-sep"></div>
-          <button class="tb-btn" id="tb-add" data-mode="add" data-tip="Add Atom (6)">+</button>
-          <button class="tb-btn" id="tb-delete" data-mode="delete" data-tip="Delete (7)">-</button>
+          <button class="tb-btn" id="tb-add" data-mode="add" data-tip="Add Atom (5)">+</button>
+          <button class="tb-btn" id="tb-delete" data-mode="delete" data-tip="Delete (6)">-</button>
+          <div class="tb-sep"></div>
+          <button class="tb-btn" id="tb-surface" data-tip="Build Surface">◫</button>
+          <button class="tb-btn" id="tb-supercell" data-tip="Build Supercell">⊞</button>
           <div class="tb-sep"></div>
           <button class="tb-btn" id="tb-reset" data-tip="Reset View">V</button>
-          <button class="tb-btn" id="tb-save" data-tip="Save">W</button>
+          <button class="tb-btn" id="tb-save" data-tip="Save (Ctrl+S)">💾</button>
         </div>
 
         <div id="viewer-wrap">
           <canvas id="struct-canvas"></canvas>
-          <div id="viewer-empty">Double-click a structure file<br/>(.cif .xyz .vasp .pdb) to view</div>
+          <div id="viewer-empty">Click a structure file<br/>(.cif .xyz .vasp .pdb or POSCAR/CONTCAR) to view</div>
           <div id="add-atom-palette"></div>
           <div id="box-select-overlay"></div>
+
+          <!-- Surface builder panel -->
+          <div id="surface-panel" class="tool-panel">
+            <div class="tool-panel-title">Build Surface</div>
+            <label class="tool-panel-label">Miller Indices (h k l)</label>
+            <div class="tool-panel-row">
+              <input id="sf-h" type="number" value="1" min="-9" max="9" step="1" class="tool-panel-input tool-panel-input-sm"/>
+              <input id="sf-k" type="number" value="0" min="-9" max="9" step="1" class="tool-panel-input tool-panel-input-sm"/>
+              <input id="sf-l" type="number" value="0" min="-9" max="9" step="1" class="tool-panel-input tool-panel-input-sm"/>
+            </div>
+            <label class="tool-panel-label">Layers</label>
+            <input id="sf-layers" type="number" value="3" min="1" max="50" step="1" class="tool-panel-input"/>
+            <label class="tool-panel-label">Vacuum (Å)</label>
+            <input id="sf-vacuum" type="number" value="10.0" min="0" max="100" step="0.5" class="tool-panel-input"/>
+            <div class="tool-panel-actions">
+              <button id="sf-build" class="tool-panel-btn primary">Build</button>
+              <button id="sf-cancel" class="tool-panel-btn">Cancel</button>
+            </div>
+            <div id="sf-error" class="tool-panel-error"></div>
+          </div>
+
+          <!-- Supercell builder panel -->
+          <div id="supercell-panel" class="tool-panel">
+            <div class="tool-panel-title">Build Supercell</div>
+            <label class="tool-panel-label">Supercell Matrix</label>
+            <div class="sc-matrix">
+              <input id="sc-m00" type="number" value="2" step="1" class="tool-panel-input sc-matrix-input sc-matrix-diag"/>
+              <input id="sc-m01" type="number" value="0" step="1" class="tool-panel-input sc-matrix-input"/>
+              <input id="sc-m02" type="number" value="0" step="1" class="tool-panel-input sc-matrix-input"/>
+              <input id="sc-m10" type="number" value="0" step="1" class="tool-panel-input sc-matrix-input"/>
+              <input id="sc-m11" type="number" value="2" step="1" class="tool-panel-input sc-matrix-input sc-matrix-diag"/>
+              <input id="sc-m12" type="number" value="0" step="1" class="tool-panel-input sc-matrix-input"/>
+              <input id="sc-m20" type="number" value="0" step="1" class="tool-panel-input sc-matrix-input"/>
+              <input id="sc-m21" type="number" value="0" step="1" class="tool-panel-input sc-matrix-input"/>
+              <input id="sc-m22" type="number" value="2" step="1" class="tool-panel-input sc-matrix-input sc-matrix-diag"/>
+            </div>
+            <div class="tool-panel-actions">
+              <button id="sc-build" class="tool-panel-btn primary">Build</button>
+              <button id="sc-cancel" class="tool-panel-btn">Cancel</button>
+            </div>
+            <div id="sc-error" class="tool-panel-error"></div>
+          </div>
 
           <div id="atom-info">
             <div class="ai-title" id="ai-title">Atom</div>
