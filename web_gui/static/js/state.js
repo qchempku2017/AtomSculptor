@@ -41,7 +41,7 @@ export const S = {
 };
 
 export const STRUCTURE_EXTS = new Set([
-  "cif", "xyz", "vasp", "poscar", "extxyz", "pdb", "sdf", "mol2",
+  "cif", "xyz", "vasp", "poscar", "extxyz", "pdb", "sdf", "mol2", "lxyz",
 ]);
 export const STRUCTURE_PREFIXES = ["poscar", "contcar"];
 

@@ -349,9 +349,28 @@ export function updateStatusBar() {
 }
 
 function initializeLoadedStructureLayers(data) {
-  initializeDefaultLayers(data.cell, data.pbc);
-  const layerId = getPrimarySelectedAtomLayerId();
-  S.atoms = (data.atoms || []).map((atom) => ({ ...atom, layerId }));
+  const loadedLayers = Array.isArray(data.layers) ? cloneLayers(data.layers) : [];
+  const hasLayeredPayload = loadedLayers.length > 0;
+
+  if (!hasLayeredPayload) {
+    initializeDefaultLayers(data.cell, data.pbc);
+    const layerId = getPrimarySelectedAtomLayerId();
+    S.atoms = (data.atoms || []).map((atom) => ({ ...atom, layerId }));
+    return;
+  }
+
+  S.layers = loadedLayers;
+  normalizeLayerState();
+
+  const atomLayers = getAtomLayers();
+  const fallbackLayerId = atomLayers[0]?.id || "atoms-1";
+  const atomLayerIds = new Set(atomLayers.map((layer) => layer.id));
+  S.atoms = (data.atoms || []).map((atom) => {
+    const layerId = atomLayerIds.has(atom.layerId) ? atom.layerId : fallbackLayerId;
+    return { ...atom, layerId };
+  });
+
+  S.selectedLayerIds = new Set([fallbackLayerId]);
 }
 
 export async function loadStructure(path) {
@@ -382,6 +401,20 @@ export async function loadStructure(path) {
   }
 }
 
+function deriveLayeredSavePath(path) {
+  if (!path) return path;
+  if (path.toLowerCase().endsWith(".lxyz")) return path;
+
+  const slash = path.lastIndexOf("/");
+  const dir = slash >= 0 ? path.slice(0, slash + 1) : "";
+  const name = slash >= 0 ? path.slice(slash + 1) : path;
+  const dot = name.lastIndexOf(".");
+  if (dot > 0) {
+    return `${dir}${name.slice(0, dot)}.lxyz`;
+  }
+  return `${dir}${name}.lxyz`;
+}
+
 export async function saveStructure() {
   if (!S.structPath) {
     alert("No structure loaded.");
@@ -389,14 +422,23 @@ export async function saveStructure() {
   }
 
   try {
+    const savePath = deriveLayeredSavePath(S.structPath);
     const resp = await fetch("/api/structure/save", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: S.structPath, atoms: S.atoms, cell: S.cell, pbc: S.pbc }),
+      body: JSON.stringify({
+        path: savePath,
+        atoms: S.atoms,
+        layers: S.layers,
+        cell: S.cell,
+        pbc: S.pbc,
+      }),
     });
     const data = await resp.json();
 
     if (data.ok) {
+      S.structPath = data.path || savePath;
+      $("#struct-file-label").textContent = S.structPath;
       const sb = $("#struct-statusbar");
       const orig = sb.style.borderTop;
       sb.style.borderTop = "1px solid var(--s-done)";

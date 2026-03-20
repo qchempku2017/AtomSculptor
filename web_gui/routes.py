@@ -69,6 +69,7 @@ async def api_structure_save(request):
 
     rel = body.get("path", "")
     atoms_data = body.get("atoms", [])
+    layers = body.get("layers", None)
     cell = body.get("cell", None)
     pbc = body.get("pbc", [False, False, False])
 
@@ -80,7 +81,7 @@ async def api_structure_save(request):
         return JSONResponse({"error": "access denied"}, status_code=403)
 
     try:
-        natoms = write_structure(fp, atoms_data, cell, pbc)
+        natoms = write_structure(fp, atoms_data, cell, pbc, layers)
         return JSONResponse({"ok": True, "path": rel, "natoms": natoms})
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
