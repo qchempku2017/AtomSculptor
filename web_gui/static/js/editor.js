@@ -1,28 +1,27 @@
 /**
- * editor.js – Edit-mode interactions: select, box-select, translate/rotate/scale
- *             (via TransformControls gizmo), add, delete.
+ * editor.js – Canvas interaction: selection, box-select, mode switching,
+ *             and keyboard shortcuts for the structure editor.
+ *
+ * Tool panel UIs (add atom, surface, supercell, lattice) are in panels.js.
  */
 
 import { S } from "./state.js";
 import { $, $$ } from "./utils.js";
 import {
   raycastAtoms, atomIdFromMesh, setOrbitEnabled,
-  updateAtomVisuals,
-  elemColor, resetCamera, setViewDirection,
+  updateAtomVisuals, resetCamera, setViewDirection,
 } from "./viewer.js";
 import {
-  addAtom,
-  buildSurface,
-  buildSupercell,
   deleteAtomById,
   deleteSelected,
+  isAtomIdInSelectedLayers,
   redoStructureEdit,
   saveStructure,
-  snapshotStructureState,
   undoStructureEdit,
   updateStatusBar,
 } from "./structure.js";
 import { updateGizmo, nudgeTransform, isGizmoActive } from "./gizmo.js";
+import { closeAllPanels, toggleAddPanel } from "./panels.js";
 
 const TRANSFORM_MODES = new Set(["translate", "rotate", "scale"]);
 
@@ -41,6 +40,16 @@ function onSelectClick(e) {
   }
 
   const id = atomIdFromMesh(hit.object);
+  if (!isAtomIdInSelectedLayers(id)) {
+    if (!e.shiftKey) {
+      S.selected.clear();
+      updateAtomVisuals();
+      updateGizmo();
+      updateStatusBar();
+    }
+    return;
+  }
+
   if (e.shiftKey) {
     S.selected.add(id);
   } else {
@@ -58,51 +67,10 @@ function onSelectClick(e) {
 function onDeleteClick(e) {
   const hit = raycastAtoms(e);
   if (!hit) return;
-  deleteAtomById(atomIdFromMesh(hit.object));
+  const id = atomIdFromMesh(hit.object);
+  if (!isAtomIdInSelectedLayers(id)) return;
+  deleteAtomById(id);
   updateGizmo();
-}
-
-// ── Add Atom ────────────────────────────────────────────────────────────────
-
-export function buildAddPalette() {
-  const palette = $("#add-atom-palette");
-  palette.innerHTML = "";
-  const common = ["H", "C", "N", "O", "F", "P", "S", "Cl", "Na", "K", "Ca", "Mg", "Fe", "Cu", "Zn", "Li", "Si", "Al", "Au", "Pt"];
-
-  for (const el of common) {
-    const btn = document.createElement("button");
-    btn.className = `elem-btn${el === S.addElement ? " selected" : ""}`;
-    btn.textContent = el;
-    btn.style.color = elemColor(el);
-    btn.onclick = () => {
-      S.addElement = el;
-      $$(".elem-btn").forEach((b) => b.classList.remove("selected"));
-      btn.classList.add("selected");
-    };
-    palette.appendChild(btn);
-  }
-}
-
-function onAddClick(e) {
-  if (!S.atoms.length) return;
-  const hit = raycastAtoms(e);
-  if (!hit) return;
-
-  const norm = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize();
-  const bondLen = 1.5;
-  const hitIdx = S.atomMeshes.indexOf(hit.object);
-  const hitAtom = S.atoms[hitIdx];
-  if (!hitAtom) return;
-
-  const newId = S.atoms.length ? Math.max(...S.atoms.map((a) => a.id)) + 1 : 0;
-  const beforeState = snapshotStructureState();
-  addAtom({
-    id: newId,
-    symbol: S.addElement,
-    x: hitAtom.x + (norm.x * bondLen),
-    y: hitAtom.y + (norm.y * bondLen),
-    z: hitAtom.z + (norm.z * bondLen),
-  }, beforeState);
 }
 
 // ── Box Select ──────────────────────────────────────────────────────────────
@@ -171,7 +139,10 @@ function onBoxEnd(e) {
   for (const mesh of S.atomMeshes) {
     proj.copy(mesh.position).project(S.camera);
     if (proj.x >= x0 && proj.x <= x1 && proj.y <= y0 && proj.y >= y1) {
-      S.selected.add(mesh.userData.atomId);
+      const atomId = mesh.userData.atomId;
+      if (isAtomIdInSelectedLayers(atomId)) {
+        S.selected.add(atomId);
+      }
     }
   }
 
@@ -188,7 +159,7 @@ function onBoxEnd(e) {
 
 export function setupCanvasEvents() {
   const canvas = $("#struct-canvas");
-  const hoverModes = new Set(["orbit", "delete", "add", "translate", "rotate", "scale"]);
+  const hoverModes = new Set(["orbit", "delete", "translate", "rotate", "scale"]);
   let pendingHover = null;
   let hoverTickScheduled = false;
   let transientBoxSelectActive = false;
@@ -320,7 +291,6 @@ export function setupCanvasEvents() {
     }
 
     if (S.mode === "delete") onDeleteClick(e);
-    else if (S.mode === "add") onAddClick(e);
 
     leftDownPos = null;
     leftDragMoved = false;
@@ -341,18 +311,7 @@ export function setMode(mode) {
   updateAtomVisuals();
   updateGizmo();
   updateStatusBar();
-
-  const palette = $("#add-atom-palette");
-  if (mode === "add") {
-    buildAddPalette();
-    palette.classList.add("show");
-  } else {
-    palette.classList.remove("show");
-  }
-
-  // Hide tool panels when switching modes
-  $("#surface-panel").classList.remove("show");
-  $("#supercell-panel").classList.remove("show");
+  closeAllPanels();
 }
 
 export function wireToolbar() {
@@ -363,125 +322,17 @@ export function wireToolbar() {
     });
   });
 
-  $("#tb-reset").addEventListener("click", resetCamera);
-  $("#tb-save").addEventListener("click", saveStructure);
+  $("#tb-reset").addEventListener("click", () => {
+    closeAllPanels();
+    resetCamera();
+  });
+  $("#tb-save").addEventListener("click", () => {
+    closeAllPanels();
+    saveStructure();
+  });
   $("#tb-delete").addEventListener("click", () => {
     if (S.mode === "delete") { deleteSelected(); updateGizmo(); }
     else setMode("delete");
-  });
-
-  // ── Surface builder panel ──
-  $("#tb-surface").addEventListener("click", () => {
-    const panel = $("#surface-panel");
-    $("#supercell-panel").classList.remove("show");
-    panel.classList.toggle("show");
-    $("#sf-error").classList.remove("show");
-  });
-
-  $("#sf-cancel").addEventListener("click", () => {
-    $("#surface-panel").classList.remove("show");
-  });
-
-  $("#sf-build").addEventListener("click", async () => {
-    const errEl = $("#sf-error");
-    errEl.classList.remove("show");
-
-    if (!S.structPath) {
-      errEl.textContent = "Load a structure first.";
-      errEl.classList.add("show");
-      return;
-    }
-
-    const h = parseInt($("#sf-h").value, 10);
-    const k = parseInt($("#sf-k").value, 10);
-    const l = parseInt($("#sf-l").value, 10);
-    const layers = parseInt($("#sf-layers").value, 10);
-    const vacuum = parseFloat($("#sf-vacuum").value);
-
-    if ([h, k, l].some(v => isNaN(v))) {
-      errEl.textContent = "Miller indices must be integers.";
-      errEl.classList.add("show");
-      return;
-    }
-    if (h === 0 && k === 0 && l === 0) {
-      errEl.textContent = "Miller indices cannot all be zero.";
-      errEl.classList.add("show");
-      return;
-    }
-
-    const btn = $("#sf-build");
-    btn.disabled = true;
-    btn.textContent = "Building...";
-    try {
-      const result = await buildSurface([h, k, l], layers, vacuum);
-      if (result.error) {
-        errEl.textContent = result.error;
-        errEl.classList.add("show");
-      } else {
-        $("#surface-panel").classList.remove("show");
-      }
-    } catch (e) {
-      errEl.textContent = String(e);
-      errEl.classList.add("show");
-    } finally {
-      btn.disabled = false;
-      btn.textContent = "Build";
-    }
-  });
-
-  // ── Supercell builder panel ──
-  $("#tb-supercell").addEventListener("click", () => {
-    const panel = $("#supercell-panel");
-    $("#surface-panel").classList.remove("show");
-    panel.classList.toggle("show");
-    $("#sc-error").classList.remove("show");
-  });
-
-  $("#sc-cancel").addEventListener("click", () => {
-    $("#supercell-panel").classList.remove("show");
-  });
-
-  $("#sc-build").addEventListener("click", async () => {
-    const errEl = $("#sc-error");
-    errEl.classList.remove("show");
-
-    if (!S.structPath) {
-      errEl.textContent = "Load a structure first.";
-      errEl.classList.add("show");
-      return;
-    }
-
-    const ids = [
-      ["sc-m00", "sc-m01", "sc-m02"],
-      ["sc-m10", "sc-m11", "sc-m12"],
-      ["sc-m20", "sc-m21", "sc-m22"],
-    ];
-    const matrix = ids.map((row) => row.map((id) => parseInt($("#" + id).value, 10)));
-
-    if (matrix.flat().some((v) => isNaN(v))) {
-      errEl.textContent = "All matrix entries must be integers.";
-      errEl.classList.add("show");
-      return;
-    }
-
-    const btn = $("#sc-build");
-    btn.disabled = true;
-    btn.textContent = "Building...";
-    try {
-      const result = await buildSupercell(matrix);
-      if (result.error) {
-        errEl.textContent = result.error;
-        errEl.classList.add("show");
-      } else {
-        $("#supercell-panel").classList.remove("show");
-      }
-    } catch (e) {
-      errEl.textContent = String(e);
-      errEl.classList.add("show");
-    } finally {
-      btn.disabled = false;
-      btn.textContent = "Build";
-    }
   });
 }
 
@@ -521,7 +372,7 @@ export function wireKeyboardShortcuts() {
     // ── Mode switches ──
     if (e.key === "1") { setMode("orbit"); return; }
     if (e.key === "2") { setMode("box"); return; }
-    if (e.key === "5") { setMode("add"); return; }
+    if (e.key === "5") { toggleAddPanel(); return; }
     if (e.key === "6") { setMode("delete"); return; }
 
     if (!e.ctrlKey && !e.metaKey) {
@@ -555,7 +406,7 @@ export function wireKeyboardShortcuts() {
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
       e.preventDefault();
-      S.selected = new Set(S.atoms.map((a) => a.id));
+      S.selected = new Set(S.atoms.filter((a) => isAtomIdInSelectedLayers(a.id)).map((a) => a.id));
       updateAtomVisuals();
       updateGizmo();
       updateStatusBar();

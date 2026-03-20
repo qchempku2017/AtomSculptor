@@ -71,7 +71,9 @@ export function initViewer() {
 
   S.scene = new THREE.Scene();
 
-  S.camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1000);
+  // Keep a persistent perspective camera and an optional orthographic camera.
+  S.perspCamera = new THREE.PerspectiveCamera(45, 1, 0.01, 1000);
+  S.camera = S.perspCamera;
   S.camera.up.set(WORLD_UP.x, WORLD_UP.y, WORLD_UP.z);
   S.camera.position.set(
     INITIAL_VIEW_DIRECTION_XY.x * 20,
@@ -98,10 +100,44 @@ export function initViewer() {
 
   raycaster = new THREE.Raycaster();
   rayNdc = new THREE.Vector2();
+  // Wire camera toggle button
+  const camBtn = $("#tb-camera");
+  if (camBtn) {
+    camBtn.addEventListener("click", () => {
+      const next = S.cameraMode === "orthographic" ? "perspective" : "orthographic";
+      setCameraMode(next);
+      camBtn.dataset.tip = `Camera: ${next.charAt(0).toUpperCase() + next.slice(1)}`;
+      camBtn.classList.toggle("active", next === "orthographic");
+    });
+  }
 
   resizeRenderer();
   new ResizeObserver(resizeRenderer).observe(wrap);
   loop();
+
+  // Allow dropping structure files onto the viewer to open them.
+  wrap.addEventListener("dragover", (event) => {
+    const types = event.dataTransfer && event.dataTransfer.types ? event.dataTransfer.types : [];
+    const hasStructure = (types.includes && types.includes("application/x-atomsculptor-structure-path"))
+      || (types.includes && types.includes("text/plain"));
+    if (!hasStructure) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    wrap.classList.add("drop-target");
+  });
+
+  wrap.addEventListener("dragleave", () => {
+    wrap.classList.remove("drop-target");
+  });
+
+  wrap.addEventListener("drop", (event) => {
+    event.preventDefault();
+    wrap.classList.remove("drop-target");
+    const path = event.dataTransfer.getData("application/x-atomsculptor-structure-path")
+      || event.dataTransfer.getData("text/plain");
+    if (!path) return;
+    document.dispatchEvent(new CustomEvent("atomsculptor:open-structure", { detail: { path } }));
+  });
 }
 
 function resizeRenderer() {
@@ -111,6 +147,9 @@ function resizeRenderer() {
   S.renderer.setSize(w, h, false);
   S.camera.aspect = w / h;
   S.camera.updateProjectionMatrix();
+
+  // Update orthographic frustum if present
+  if (S.orthoCamera) updateOrthoFrustum();
 }
 
 function loop() {
@@ -132,6 +171,83 @@ function updateCameraClippingPlanes() {
   S.camera.near = near;
   S.camera.far = far;
   S.camera.updateProjectionMatrix();
+}
+
+
+function updateOrthoFrustum() {
+  if (!S.orthoCamera) return;
+  const fitRadius = computeFitRadius();
+  const halfH = fitRadius * CAMERA_FIT_MARGIN;
+  // Use actual canvas aspect to avoid relying on current camera.aspect
+  const canvas = S.renderer && S.renderer.domElement;
+  const aspect = canvas && canvas.clientWidth && canvas.clientHeight
+    ? canvas.clientWidth / canvas.clientHeight
+    : (S.perspCamera && S.perspCamera.aspect) || 1;
+  const halfW = halfH * Math.max(aspect, 1e-3);
+  S.orthoCamera.left = -halfW;
+  S.orthoCamera.right = halfW;
+  S.orthoCamera.top = halfH;
+  S.orthoCamera.bottom = -halfH;
+  S.orthoCamera.near = Math.max(CAMERA_NEAR_MIN, fitRadius * CAMERA_NEAR_FACTOR);
+  S.orthoCamera.far = Math.max(CAMERA_FAR_MIN, fitRadius * CAMERA_FAR_FACTOR);
+  S.orthoCamera.updateProjectionMatrix();
+}
+
+
+function createOrthoCamera() {
+  const fitRadius = computeFitRadius();
+  const halfH = fitRadius * CAMERA_FIT_MARGIN;
+  // Derive aspect from renderer canvas to keep proportions correct
+  const canvas = S.renderer && S.renderer.domElement;
+  const aspect = canvas && canvas.clientWidth && canvas.clientHeight
+    ? canvas.clientWidth / canvas.clientHeight
+    : (S.perspCamera && S.perspCamera.aspect) || 1;
+  const halfW = halfH * Math.max(aspect, 1e-3);
+  const near = Math.max(CAMERA_NEAR_MIN, fitRadius * CAMERA_NEAR_FACTOR);
+  const far = Math.max(CAMERA_FAR_MIN, fitRadius * CAMERA_FAR_FACTOR);
+  S.orthoCamera = new THREE.OrthographicCamera(-halfW, halfW, halfH, -halfH, near, far);
+  S.orthoCamera.up.set(WORLD_UP.x, WORLD_UP.y, WORLD_UP.z);
+  S.orthoCamera.position.copy(S.camera.position);
+  S.orthoCamera.lookAt(S.controls.target);
+}
+
+
+export function setCameraMode(mode) {
+  if (mode === S.cameraMode) return;
+
+  // Preserve transform and view target when switching cameras
+  const oldCam = S.camera;
+  const target = S.controls ? S.controls.target.clone() : new THREE.Vector3(0, 0, 0);
+
+  if (mode === "orthographic") {
+    if (!S.orthoCamera) createOrthoCamera();
+    // copy transform from current camera
+    S.orthoCamera.position.copy(oldCam.position);
+    S.orthoCamera.quaternion.copy(oldCam.quaternion);
+    S.orthoCamera.up.copy(oldCam.up);
+    S.orthoCamera.lookAt(target);
+    updateOrthoFrustum();
+    S.camera = S.orthoCamera;
+  } else {
+    // switching back to perspective: ensure persp camera exists
+    if (!S.perspCamera) S.perspCamera = new THREE.PerspectiveCamera(45, 1, 0.01, 1000);
+    S.perspCamera.position.copy(oldCam.position);
+    S.perspCamera.quaternion.copy(oldCam.quaternion);
+    S.perspCamera.up.copy(oldCam.up);
+    S.perspCamera.lookAt(target);
+    S.camera = S.perspCamera;
+  }
+
+  S.cameraMode = mode;
+  // update controls to point to the new camera object and keep same target
+  if (S.controls) {
+    S.controls.object = S.camera;
+    S.controls.target.copy(target);
+    S.controls.update();
+  }
+
+  updateCameraClippingPlanes();
+  if (S.camera.updateProjectionMatrix) S.camera.updateProjectionMatrix();
 }
 
 export function rebuildScene() {
@@ -182,119 +298,87 @@ export function rebuildScene() {
   updateAtomVisuals(true);
 }
 
+
 function buildBonds(c) {
   const n = S.atoms.length;
-  // Shared geometry; each half-cylinder mesh gets its own material and transform.
   const cylGeo = new THREE.CylinderGeometry(0.08, 0.08, 1, 8, 1);
   const up = new THREE.Vector3(0, 1, 0);
 
-  // Build image offsets to check, respecting per-axis PBC flags.
-  const hasPBC = !!(S.cell && (S.pbc[0] || S.pbc[1] || S.pbc[2]));
-  const offsets = [[0, 0, 0]];
-  if (hasPBC) {
-    const [pa, pb, pc] = S.pbc;
-    for (let n0 = -1; n0 <= 1; n0 += 1) {
-      for (let n1 = -1; n1 <= 1; n1 += 1) {
-        for (let n2 = -1; n2 <= 1; n2 += 1) {
-          if (n0 === 0 && n1 === 0 && n2 === 0) continue;
-          if (n0 !== 0 && !pa) continue;
-          if (n1 !== 0 && !pb) continue;
-          if (n2 !== 0 && !pc) continue;
-          offsets.push([n0, n1, n2]);
-        }
-      }
-    }
-  }
+  // Extract cell vectors
+  const [v0, v1, v2] = S.cell;
 
-  const radii = S.atoms.map((atom) => (ELEM_RADIUS[atom.symbol] || ELEM_RADIUS.default));
-  let meshCount = 0;
-  let truncated = false;
+  const radii = S.atoms.map(a => ELEM_RADIUS[a.symbol] || ELEM_RADIUS.default);
+  const atomColors = S.atoms.map(a => new THREE.Color(elemColor(a.symbol)));
 
-  for (let i = 0; i < n; i += 1) {
-    for (let j = i + 1; j < n; j += 1) {
+  // Determine search ranges for neighboring cells (-1 to 1 for periodic axes)
+  const nxRange = S.pbc[0] ? [-1, 0, 1] : [0];
+  const nyRange = S.pbc[1] ? [-1, 0, 1] : [0];
+  const nzRange = S.pbc[2] ? [-1, 0, 1] : [0];
+
+  // 1. Start j from i to include potential self-bonds across PBC
+  for (let i = 0; i < n; i++) {
+    for (let j = i; j < n; j++) {
       const a = S.atoms[i];
       const b = S.atoms[j];
-      const rA = radii[i];
-      const rB = radii[j];
-      const bondCutoff = (rA + rB) * BOND_TOLERANCE;
-      const cutoff2 = bondCutoff * bondCutoff;
 
-      for (const [n0, n1, n2] of offsets) {
-        let bx = b.x;
-        let by = b.y;
-        let bz = b.z;
-        if (n0 !== 0 || n1 !== 0 || n2 !== 0) {
-          const [cv0, cv1, cv2] = S.cell;
-          bx += n0 * cv0[0] + n1 * cv1[0] + n2 * cv2[0];
-          by += n0 * cv0[1] + n1 * cv1[1] + n2 * cv2[1];
-          bz += n0 * cv0[2] + n1 * cv1[2] + n2 * cv2[2];
+      // 2. Explicitly search adjacent cells instead of using Minimum Image Convention
+      for (let nx of nxRange) {
+        for (let ny of nyRange) {
+          for (let nz of nzRange) {
+
+            // 3. Prevent double-counting self-bonds and skip the origin cell (distance 0)
+            if (i === j) {
+              if (nx < 0) continue;
+              if (nx === 0 && ny < 0) continue;
+              if (nx === 0 && ny === 0 && nz <= 0) continue; 
+            }
+
+            // Apply periodic offset based on cell vectors
+            const offsetX = nx * v0[0] + ny * v1[0] + nz * v2[0];
+            const offsetY = nx * v0[1] + ny * v1[1] + nz * v2[1];
+            const offsetZ = nx * v0[2] + ny * v1[2] + nz * v2[2];
+
+            const dx = (b.x + offsetX) - a.x;
+            const dy = (b.y + offsetY) - a.y;
+            const dz = (b.z + offsetZ) - a.z;
+
+            const dist2 = dx * dx + dy * dy + dz * dz;
+            const cutoff = (radii[i] + radii[j]) * BOND_TOLERANCE;
+
+            // dist2 > 0.1 ensures we still ignore overlapping/duplicate atoms
+            if (dist2 > 0.1 && dist2 < cutoff * cutoff) {
+              const dist = Math.sqrt(dist2);
+              const dir = new THREE.Vector3(dx, dy, dz).normalize();
+              const halfLen = dist / 2;
+
+              // Half-bond from A towards image of B
+              addHalfBond(a, dir, halfLen, atomColors[i], i, j);
+              
+              // Half-bond from B towards image of A (Negative direction)
+              const invDir = dir.clone().negate();
+              addHalfBond(b, invDir, halfLen, atomColors[j], i, j);
+            }
+          }
         }
-
-        const dx = bx - a.x;
-        const dy = by - a.y;
-        const dz = bz - a.z;
-        const dist2 = (dx * dx) + (dy * dy) + (dz * dz);
-        // Skip self-image (dist ≈ 0) and distances beyond the bond cutoff.
-        if (dist2 < 0.16 || dist2 > cutoff2) continue;
-
-        if (meshCount >= MAX_BOND_MESHES) {
-          truncated = true;
-          break;
-        }
-
-        const dist = Math.sqrt(dist2);
-        const mx = (a.x + bx) / 2;
-        const my = (a.y + by) / 2;
-        const mz = (a.z + bz) / 2;
-        const dir = new THREE.Vector3(dx, dy, dz).normalize();
-        const quat = new THREE.Quaternion().setFromUnitVectors(up, dir);
-        const halfDist = dist / 2;
-
-        // Half-cylinder A: from atom A to the bond midpoint, colored like atom A.
-        const meshA = new THREE.Mesh(
-          cylGeo,
-          new THREE.MeshPhongMaterial({ color: new THREE.Color(elemColor(a.symbol)), shininess: 60 }),
-        );
-        meshA.position.set(
-          (a.x + mx) / 2 - c.x,
-          (a.y + my) / 2 - c.y,
-          (a.z + mz) / 2 - c.z,
-        );
-        meshA.scale.set(1, halfDist, 1);
-        meshA.quaternion.copy(quat);
-        meshA.userData = { isBond: true, atomA: i, atomB: j };
-        S.scene.add(meshA);
-        S.bondMeshes.push(meshA);
-        meshCount += 1;
-
-        // Half-cylinder B: from bond midpoint to atom B (image), colored like atom B.
-        const meshB = new THREE.Mesh(
-          cylGeo,
-          new THREE.MeshPhongMaterial({ color: new THREE.Color(elemColor(b.symbol)), shininess: 60 }),
-        );
-        meshB.position.set(
-          (mx + bx) / 2 - c.x,
-          (my + by) / 2 - c.y,
-          (mz + bz) / 2 - c.z,
-        );
-        meshB.scale.set(1, halfDist, 1);
-        meshB.quaternion.copy(quat);
-        meshB.userData = { isBond: true, atomA: i, atomB: j };
-        S.scene.add(meshB);
-        S.bondMeshes.push(meshB);
-        meshCount += 1;
       }
-
-      if (truncated) break;
     }
-
-    if (truncated) break;
   }
 
-  if (truncated) {
-    console.info(`Bond rendering capped at ${MAX_BOND_MESHES} meshes for responsiveness.`);
+  function addHalfBond(atom, direction, length, color, idxA, idxB) {
+    const mesh = new THREE.Mesh(cylGeo, new THREE.MeshPhongMaterial({color}));
+    const pos = new THREE.Vector3(atom.x, atom.y, atom.z)
+      .addScaledVector(direction, length / 2)
+      .sub(c); // Apply camera/center offset
+    
+    mesh.position.copy(pos);
+    mesh.scale.set(1, length, 1);
+    mesh.quaternion.setFromUnitVectors(up, direction);
+    S.scene.add(mesh);
+    S.bondMeshes.push(mesh);
   }
 }
+
+
 
 function buildCell(c) {
   const [a, b, cc] = S.cell;
@@ -328,8 +412,17 @@ function applyAtomVisualById(id) {
   if (idx === undefined) return;
   const mesh = S.atomMeshes[idx];
   if (!mesh) return;
+  const atom = S.atoms[idx];
+  const inSelectedLayer = Boolean(atom && S.selectedLayerIds.has(atom.layerId));
 
   const base = mesh.userData.baseColor;
+  if (!inSelectedLayer) {
+    mesh.material.color.copy(base).lerp(new THREE.Color(0x555555), 0.6);
+    mesh.material.emissive.set(0x000000);
+    mesh.scale.setScalar(1);
+    return;
+  }
+
   if (S.selected.has(id)) {
     mesh.material.color.set(0xffdd44);
     mesh.material.emissive.set(0x443300);
@@ -435,8 +528,10 @@ function setCameraViewDirection(viewDir) {
   if (!S.atoms.length) return;
 
   const fitRadius = computeFitRadius();
-  const vFov = THREE.MathUtils.degToRad(S.camera.fov);
-  const hFov = 2 * Math.atan(Math.tan(vFov / 2) * Math.max(S.camera.aspect, 1e-3));
+  // Use perspective FOV for distance calculation so view framing is consistent
+  const fovDeg = (S.perspCamera && S.perspCamera.fov) ? S.perspCamera.fov : 45;
+  const vFov = THREE.MathUtils.degToRad(fovDeg);
+  const hFov = 2 * Math.atan(Math.tan(vFov / 2) * Math.max(S.perspCamera.aspect || 1, 1e-3));
   const limitingHalfFov = Math.min(vFov, hFov) / 2;
   const camDistance = (fitRadius * CAMERA_FIT_MARGIN) / Math.sin(limitingHalfFov);
 
@@ -444,6 +539,7 @@ function setCameraViewDirection(viewDir) {
   S.camera.position.copy(viewDir.clone().normalize().multiplyScalar(camDistance));
   S.controls.target.set(0, 0, 0);
   updateCameraClippingPlanes();
+  if (S.orthoCamera) updateOrthoFrustum();
   S.controls.update();
 }
 

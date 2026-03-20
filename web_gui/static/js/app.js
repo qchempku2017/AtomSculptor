@@ -4,23 +4,26 @@
  * Module map:
  *   state.js      – global state object & constants
  *   utils.js      – pure formatting / DOM helpers
- *   websocket.js  – WebSocket connection & message dispatch
- *   chat.js       – chat panel (messages, processing, send)
+ *   websocket.js  – WebSocket connection, message routing & dispatch
+ *   chat.js       – chat panel rendering & message sending
  *   todo.js       – task-flow DAG (Cytoscape) & aggregator hint
  *   filesystem.js – workspace file-tree rendering
  *   viewer.js     – Three.js scene, camera, rendering loop
- *   structure.js  – structure data (load / save / detect)
- *   editor.js     – edit modes (select, box, translate, rotate, scale, add, delete)
+ *   structure.js  – structure data (load / save / undo-redo / detect)
+ *   editor.js     – canvas interaction (select, box, mode switching, keyboard)
+ *   panels.js     – tool panels (add atom, surface, supercell, lattice)
  *   gizmo.js      – TransformControls gizmo for translate/rotate/scale
  */
 
 import { S } from "./state.js";
 import { $ } from "./utils.js";
-import { connect } from "./websocket.js";
+import { connect, wsSend } from "./websocket.js";
 import { wireChat } from "./chat.js";
 import { initGraph } from "./todo.js";
 import { initViewer } from "./viewer.js";
+import { initLayersPanel } from "./layers.js";
 import { setupCanvasEvents, setMode, wireToolbar, wireKeyboardShortcuts } from "./editor.js";
+import { wirePanels } from "./panels.js";
 import { initGizmo } from "./gizmo.js";
 
 function reportStartupError(label, err) {
@@ -53,7 +56,7 @@ function safeInit(label, fn) {
 
 function initResizablePanels() {
   const app = document.getElementById("app");
-  const panelIds = ["panel-todo", "panel-chat", "panel-struct", "panel-files"];
+  const panelIds = ["panel-todo", "panel-chat", "panel-struct", "panel-right"];
   const minWidth = 140;
 
   document.querySelectorAll(".col-divider").forEach((divider, i) => {
@@ -95,9 +98,16 @@ function initResizablePanels() {
 document.addEventListener("DOMContentLoaded", () => {
   safeInit("Chat", wireChat);
   safeInit("Toolbar", wireToolbar);
+  safeInit("Panels", wirePanels);
+  safeInit("Layers", initLayersPanel);
   safeInit("Keyboard", wireKeyboardShortcuts);
   safeInit("Task graph", initGraph);
   safeInit("Resizable panels", initResizablePanels);
+
+  // Wire non-chat header/panel buttons
+  $("#btn-refresh-todo").addEventListener("click", () => wsSend({ type: "refresh_todo" }));
+  $("#btn-refresh-files").addEventListener("click", () => wsSend({ type: "refresh_files" }));
+
   connect();
 
   const viewerReady = safeInit("Viewer", initViewer);
