@@ -37,6 +37,7 @@ from .routes import (
     api_file_delete,
     api_file_rename,
     api_file_duplicate,
+    api_file_upload,
 )
 from .websocket_handler import ws_chat
 
@@ -59,6 +60,7 @@ app = Starlette(
         Route("/api/file/delete", api_file_delete, methods=["POST"]),
         Route("/api/file/rename", api_file_rename, methods=["POST"]),
         Route("/api/file/duplicate", api_file_duplicate, methods=["POST"]),
+        Route("/api/file/upload", api_file_upload, methods=["POST"]),
         WebSocketRoute("/ws", ws_chat),
         Mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static"),
     ],

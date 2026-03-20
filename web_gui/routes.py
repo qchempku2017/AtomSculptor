@@ -267,6 +267,37 @@ async def api_file_rename(request):
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
+async def api_file_upload(request):
+    """POST /api/file/upload — accept dropped files and store them in sandbox root."""
+    form = await request.form()
+    upload = form.get("file")
+    if not upload:
+        return JSONResponse({"error": "file required"}, status_code=400)
+
+    filename = getattr(upload, "filename", None) or ""
+    if not filename:
+        return JSONResponse({"error": "invalid filename"}, status_code=400)
+
+    from pathlib import Path
+    root = sandbox_root()
+    name = Path(filename).name
+    if name in ("", ".", ".."):
+        return JSONResponse({"error": "invalid filename"}, status_code=400)
+
+    target = root / name
+    counter = 1
+    while target.exists():
+        target = root / f"{target.stem}_{counter}{target.suffix}"
+        counter += 1
+
+    try:
+        content = await upload.read()
+        target.write_bytes(content)
+        return JSONResponse({"ok": True, "path": str(target.relative_to(root))})
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
 async def api_file_duplicate(request):
     try:
         body = await request.json()
