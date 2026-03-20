@@ -12,6 +12,7 @@ import {
 } from "./viewer.js";
 import {
   addAtom,
+  applyLattice,
   buildSurface,
   buildSupercell,
   deleteAtomById,
@@ -471,6 +472,56 @@ function toggleAddPanel() {
   }
 }
 
+function setMatrixInputs(prefix, matrix) {
+  for (let i = 0; i < 3; i += 1) {
+    for (let j = 0; j < 3; j += 1) {
+      $("#" + prefix + i + j).value = Number(matrix[i][j]).toFixed(3);
+    }
+  }
+}
+
+function readMatrixInputs(prefix) {
+  const m = [];
+  for (let i = 0; i < 3; i += 1) {
+    m[i] = [];
+    for (let j = 0; j < 3; j += 1) {
+      const v = parseFloat($("#" + prefix + i + j).value);
+      if (Number.isNaN(v)) throw new Error("Matrix contains invalid numbers.");
+      m[i][j] = v;
+    }
+  }
+  return m;
+}
+
+function multiplyMatrices(a, b) {
+  const out = [];
+  for (let i = 0; i < 3; i += 1) {
+    out[i] = [];
+    for (let j = 0; j < 3; j += 1) {
+      out[i][j] = 0;
+      for (let k = 0; k < 3; k += 1) {
+        out[i][j] += a[i][k] * b[k][j];
+      }
+    }
+  }
+  return out;
+}
+
+function setLatticeFromReal(realMatrix, scaleAtoms) {
+  applyLattice(realMatrix, scaleAtoms);
+}
+
+function initializeLatticePanel() {
+  setMatrixInputs("la-sm", [[1,0,0],[0,1,0],[0,0,1]]);
+  if (Array.isArray(S.cell) && S.cell.length === 3) {
+    setMatrixInputs("la-rm", S.cell);
+  } else {
+    setMatrixInputs("la-rm", [[1,0,0],[0,1,0],[0,0,1]]);
+  }
+  $("#la-scale-atoms").checked = true;
+  $("#la-error").classList.remove("show");
+}
+
 export function setMode(mode) {
   S.mode = mode;
   $$(".tb-btn[data-mode]").forEach((b) => {
@@ -488,6 +539,7 @@ export function setMode(mode) {
   // Hide tool panels when switching modes
   $("#surface-panel").classList.remove("show");
   $("#supercell-panel").classList.remove("show");
+  $("#lattice-panel").classList.remove("show");
 }
 
 export function wireToolbar() {
@@ -579,6 +631,7 @@ export function wireToolbar() {
   $("#tb-supercell").addEventListener("click", () => {
     const panel = $("#supercell-panel");
     $("#surface-panel").classList.remove("show");
+    $("#lattice-panel").classList.remove("show");
     closeAddPanel();
     panel.classList.toggle("show");
     $("#sc-error").classList.remove("show");
@@ -586,6 +639,47 @@ export function wireToolbar() {
 
   $("#sc-cancel").addEventListener("click", () => {
     $("#supercell-panel").classList.remove("show");
+  });
+
+  // ── Lattice operations panel ──
+  $("#tb-lattice").addEventListener("click", () => {
+    const panel = $("#lattice-panel");
+    $("#surface-panel").classList.remove("show");
+    $("#supercell-panel").classList.remove("show");
+    closeAddPanel();
+    panel.classList.toggle("show");
+    initializeLatticePanel();
+  });
+
+  $("#la-cancel").addEventListener("click", () => {
+    $("#lattice-panel").classList.remove("show");
+  });
+
+  $("#la-update-real").addEventListener("click", () => {
+    try {
+      const scaleMat = readMatrixInputs("la-sm");
+      const currentCell = Array.isArray(S.cell) && S.cell.length === 3 ? S.cell : [[1,0,0],[0,1,0],[0,0,1]];
+      const newReal = multiplyMatrices(currentCell, scaleMat);
+      setMatrixInputs("la-rm", newReal);
+      $("#la-error").classList.remove("show");
+    } catch (e) {
+      const err = $("#la-error");
+      err.textContent = String(e);
+      err.classList.add("show");
+    }
+  });
+
+  $("#la-apply").addEventListener("click", () => {
+    try {
+      const realMat = readMatrixInputs("la-rm");
+      const scaleAtoms = $("#la-scale-atoms").checked;
+      setLatticeFromReal(realMat, scaleAtoms);
+      $("#lattice-panel").classList.remove("show");
+    } catch (e) {
+      const err = $("#la-error");
+      err.textContent = String(e);
+      err.classList.add("show");
+    }
   });
 
   $("#sc-build").addEventListener("click", async () => {

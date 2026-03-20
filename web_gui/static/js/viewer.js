@@ -182,119 +182,87 @@ export function rebuildScene() {
   updateAtomVisuals(true);
 }
 
+
 function buildBonds(c) {
   const n = S.atoms.length;
-  // Shared geometry; each half-cylinder mesh gets its own material and transform.
   const cylGeo = new THREE.CylinderGeometry(0.08, 0.08, 1, 8, 1);
   const up = new THREE.Vector3(0, 1, 0);
 
-  // Build image offsets to check, respecting per-axis PBC flags.
-  const hasPBC = !!(S.cell && (S.pbc[0] || S.pbc[1] || S.pbc[2]));
-  const offsets = [[0, 0, 0]];
-  if (hasPBC) {
-    const [pa, pb, pc] = S.pbc;
-    for (let n0 = -1; n0 <= 1; n0 += 1) {
-      for (let n1 = -1; n1 <= 1; n1 += 1) {
-        for (let n2 = -1; n2 <= 1; n2 += 1) {
-          if (n0 === 0 && n1 === 0 && n2 === 0) continue;
-          if (n0 !== 0 && !pa) continue;
-          if (n1 !== 0 && !pb) continue;
-          if (n2 !== 0 && !pc) continue;
-          offsets.push([n0, n1, n2]);
-        }
-      }
-    }
-  }
+  // Extract cell vectors
+  const [v0, v1, v2] = S.cell;
 
-  const radii = S.atoms.map((atom) => (ELEM_RADIUS[atom.symbol] || ELEM_RADIUS.default));
-  let meshCount = 0;
-  let truncated = false;
+  const radii = S.atoms.map(a => ELEM_RADIUS[a.symbol] || ELEM_RADIUS.default);
+  const atomColors = S.atoms.map(a => new THREE.Color(elemColor(a.symbol)));
 
-  for (let i = 0; i < n; i += 1) {
-    for (let j = i + 1; j < n; j += 1) {
+  // Determine search ranges for neighboring cells (-1 to 1 for periodic axes)
+  const nxRange = S.pbc[0] ? [-1, 0, 1] : [0];
+  const nyRange = S.pbc[1] ? [-1, 0, 1] : [0];
+  const nzRange = S.pbc[2] ? [-1, 0, 1] : [0];
+
+  // 1. Start j from i to include potential self-bonds across PBC
+  for (let i = 0; i < n; i++) {
+    for (let j = i; j < n; j++) {
       const a = S.atoms[i];
       const b = S.atoms[j];
-      const rA = radii[i];
-      const rB = radii[j];
-      const bondCutoff = (rA + rB) * BOND_TOLERANCE;
-      const cutoff2 = bondCutoff * bondCutoff;
 
-      for (const [n0, n1, n2] of offsets) {
-        let bx = b.x;
-        let by = b.y;
-        let bz = b.z;
-        if (n0 !== 0 || n1 !== 0 || n2 !== 0) {
-          const [cv0, cv1, cv2] = S.cell;
-          bx += n0 * cv0[0] + n1 * cv1[0] + n2 * cv2[0];
-          by += n0 * cv0[1] + n1 * cv1[1] + n2 * cv2[1];
-          bz += n0 * cv0[2] + n1 * cv1[2] + n2 * cv2[2];
+      // 2. Explicitly search adjacent cells instead of using Minimum Image Convention
+      for (let nx of nxRange) {
+        for (let ny of nyRange) {
+          for (let nz of nzRange) {
+
+            // 3. Prevent double-counting self-bonds and skip the origin cell (distance 0)
+            if (i === j) {
+              if (nx < 0) continue;
+              if (nx === 0 && ny < 0) continue;
+              if (nx === 0 && ny === 0 && nz <= 0) continue; 
+            }
+
+            // Apply periodic offset based on cell vectors
+            const offsetX = nx * v0[0] + ny * v1[0] + nz * v2[0];
+            const offsetY = nx * v0[1] + ny * v1[1] + nz * v2[1];
+            const offsetZ = nx * v0[2] + ny * v1[2] + nz * v2[2];
+
+            const dx = (b.x + offsetX) - a.x;
+            const dy = (b.y + offsetY) - a.y;
+            const dz = (b.z + offsetZ) - a.z;
+
+            const dist2 = dx * dx + dy * dy + dz * dz;
+            const cutoff = (radii[i] + radii[j]) * BOND_TOLERANCE;
+
+            // dist2 > 0.1 ensures we still ignore overlapping/duplicate atoms
+            if (dist2 > 0.1 && dist2 < cutoff * cutoff) {
+              const dist = Math.sqrt(dist2);
+              const dir = new THREE.Vector3(dx, dy, dz).normalize();
+              const halfLen = dist / 2;
+
+              // Half-bond from A towards image of B
+              addHalfBond(a, dir, halfLen, atomColors[i], i, j);
+              
+              // Half-bond from B towards image of A (Negative direction)
+              const invDir = dir.clone().negate();
+              addHalfBond(b, invDir, halfLen, atomColors[j], i, j);
+            }
+          }
         }
-
-        const dx = bx - a.x;
-        const dy = by - a.y;
-        const dz = bz - a.z;
-        const dist2 = (dx * dx) + (dy * dy) + (dz * dz);
-        // Skip self-image (dist ≈ 0) and distances beyond the bond cutoff.
-        if (dist2 < 0.16 || dist2 > cutoff2) continue;
-
-        if (meshCount >= MAX_BOND_MESHES) {
-          truncated = true;
-          break;
-        }
-
-        const dist = Math.sqrt(dist2);
-        const mx = (a.x + bx) / 2;
-        const my = (a.y + by) / 2;
-        const mz = (a.z + bz) / 2;
-        const dir = new THREE.Vector3(dx, dy, dz).normalize();
-        const quat = new THREE.Quaternion().setFromUnitVectors(up, dir);
-        const halfDist = dist / 2;
-
-        // Half-cylinder A: from atom A to the bond midpoint, colored like atom A.
-        const meshA = new THREE.Mesh(
-          cylGeo,
-          new THREE.MeshPhongMaterial({ color: new THREE.Color(elemColor(a.symbol)), shininess: 60 }),
-        );
-        meshA.position.set(
-          (a.x + mx) / 2 - c.x,
-          (a.y + my) / 2 - c.y,
-          (a.z + mz) / 2 - c.z,
-        );
-        meshA.scale.set(1, halfDist, 1);
-        meshA.quaternion.copy(quat);
-        meshA.userData = { isBond: true, atomA: i, atomB: j };
-        S.scene.add(meshA);
-        S.bondMeshes.push(meshA);
-        meshCount += 1;
-
-        // Half-cylinder B: from bond midpoint to atom B (image), colored like atom B.
-        const meshB = new THREE.Mesh(
-          cylGeo,
-          new THREE.MeshPhongMaterial({ color: new THREE.Color(elemColor(b.symbol)), shininess: 60 }),
-        );
-        meshB.position.set(
-          (mx + bx) / 2 - c.x,
-          (my + by) / 2 - c.y,
-          (mz + bz) / 2 - c.z,
-        );
-        meshB.scale.set(1, halfDist, 1);
-        meshB.quaternion.copy(quat);
-        meshB.userData = { isBond: true, atomA: i, atomB: j };
-        S.scene.add(meshB);
-        S.bondMeshes.push(meshB);
-        meshCount += 1;
       }
-
-      if (truncated) break;
     }
-
-    if (truncated) break;
   }
 
-  if (truncated) {
-    console.info(`Bond rendering capped at ${MAX_BOND_MESHES} meshes for responsiveness.`);
+  function addHalfBond(atom, direction, length, color, idxA, idxB) {
+    const mesh = new THREE.Mesh(cylGeo, new THREE.MeshPhongMaterial({color}));
+    const pos = new THREE.Vector3(atom.x, atom.y, atom.z)
+      .addScaledVector(direction, length / 2)
+      .sub(c); // Apply camera/center offset
+    
+    mesh.position.copy(pos);
+    mesh.scale.set(1, length, 1);
+    mesh.quaternion.setFromUnitVectors(up, direction);
+    S.scene.add(mesh);
+    S.bondMeshes.push(mesh);
   }
 }
+
+
 
 function buildCell(c) {
   const [a, b, cc] = S.cell;

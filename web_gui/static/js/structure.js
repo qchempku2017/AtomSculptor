@@ -244,6 +244,47 @@ export function addAtom(atom, beforeState = null) {
   recordStructureEdit(snapshot);
 }
 
+export function applyLattice(realMatrix, scaleAtoms) {
+  const beforeState = snapshotStructureState();
+  const currentCell = Array.isArray(S.cell) && S.cell.length === 3 ? S.cell : [[1,0,0],[0,1,0],[0,0,1]];
+
+  const invertMatrix3 = (m) => {
+    const a = m[0][0]; const b = m[0][1]; const c = m[0][2];
+    const d = m[1][0]; const e = m[1][1]; const f = m[1][2];
+    const g = m[2][0]; const h = m[2][1]; const i = m[2][2];
+    const det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+    if (Math.abs(det) < 1e-12) throw new Error("Cell matrix is singular and cannot be inverted.");
+    const invDet = 1 / det;
+    return [
+      [(e * i - f * h) * invDet, (c * h - b * i) * invDet, (b * f - c * e) * invDet],
+      [(f * g - d * i) * invDet, (a * i - c * g) * invDet, (c * d - a * f) * invDet],
+      [(d * h - e * g) * invDet, (b * g - a * h) * invDet, (a * e - b * d) * invDet],
+    ];
+  };
+
+  const multVec = (m, v) => [
+    m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2],
+    m[1][0] * v[0] + m[1][1] * v[1] + m[1][2] * v[2],
+    m[2][0] * v[0] + m[2][1] * v[1] + m[2][2] * v[2],
+  ];
+
+  if (scaleAtoms) {
+    const invOld = invertMatrix3(currentCell);
+    for (const atom of S.atoms) {
+      const frac = multVec(invOld, [atom.x, atom.y, atom.z]);
+      const newPos = multVec(realMatrix, frac);
+      atom.x = newPos[0];
+      atom.y = newPos[1];
+      atom.z = newPos[2];
+    }
+  }
+
+  S.cell = realMatrix;
+  rebuildScene();
+  updateStatusBar();
+  recordStructureEdit(beforeState);
+}
+
 // ── Structure building tools ────────────────────────────────────────────────
 
 function applyBuiltStructure(data) {

@@ -72,6 +72,7 @@
           <div class="tb-sep"></div>
           <button class="tb-btn" id="tb-surface" data-tip="Build Surface">◫</button>
           <button class="tb-btn" id="tb-supercell" data-tip="Build Supercell">⊞</button>
+          <button class="tb-btn" id="tb-lattice" data-tip="Lattice Operations">λ</button>
           <div class="tb-sep"></div>
           <button class="tb-btn" id="tb-reset" data-tip="Reset View">V</button>
           <button class="tb-btn" id="tb-save" data-tip="Save (Ctrl+S)">💾</button>
@@ -140,6 +141,45 @@
               <button id="sc-cancel" class="tool-panel-btn">Cancel</button>
             </div>
             <div id="sc-error" class="tool-panel-error"></div>
+          </div>
+
+          <!-- Lattice operations panel -->
+          <div id="lattice-panel" class="tool-panel">
+            <div class="tool-panel-title">Lattice Operations</div>
+            <label class="tool-panel-label">Scale Matrix</label>
+            <div class="sc-matrix">
+              <input id="la-sm00" type="number" value="1" step="0.1" class="tool-panel-input sc-matrix-input sc-matrix-diag"/>
+              <input id="la-sm01" type="number" value="0" step="0.1" class="tool-panel-input sc-matrix-input"/>
+              <input id="la-sm02" type="number" value="0" step="0.1" class="tool-panel-input sc-matrix-input"/>
+              <input id="la-sm10" type="number" value="0" step="0.1" class="tool-panel-input sc-matrix-input"/>
+              <input id="la-sm11" type="number" value="1" step="0.1" class="tool-panel-input sc-matrix-input sc-matrix-diag"/>
+              <input id="la-sm12" type="number" value="0" step="0.1" class="tool-panel-input sc-matrix-input"/>
+              <input id="la-sm20" type="number" value="0" step="0.1" class="tool-panel-input sc-matrix-input"/>
+              <input id="la-sm21" type="number" value="0" step="0.1" class="tool-panel-input sc-matrix-input"/>
+              <input id="la-sm22" type="number" value="1" step="0.1" class="tool-panel-input sc-matrix-input sc-matrix-diag"/>
+            </div>
+            <label class="tool-panel-label">Real Lattice Matrix</label>
+            <div class="sc-matrix">
+              <input id="la-rm00" type="number" value="1" step="0.1" class="tool-panel-input sc-matrix-input sc-matrix-diag"/>
+              <input id="la-rm01" type="number" value="0" step="0.1" class="tool-panel-input sc-matrix-input"/>
+              <input id="la-rm02" type="number" value="0" step="0.1" class="tool-panel-input sc-matrix-input"/>
+              <input id="la-rm10" type="number" value="0" step="0.1" class="tool-panel-input sc-matrix-input"/>
+              <input id="la-rm11" type="number" value="1" step="0.1" class="tool-panel-input sc-matrix-input sc-matrix-diag"/>
+              <input id="la-rm12" type="number" value="0" step="0.1" class="tool-panel-input sc-matrix-input"/>
+              <input id="la-rm20" type="number" value="0" step="0.1" class="tool-panel-input sc-matrix-input"/>
+              <input id="la-rm21" type="number" value="0" step="0.1" class="tool-panel-input sc-matrix-input"/>
+              <input id="la-rm22" type="number" value="1" step="0.1" class="tool-panel-input sc-matrix-input sc-matrix-diag"/>
+            </div>
+            <label class="tool-panel-row" style="align-items:center; gap:6px; margin-top:4px;">
+              <input id="la-scale-atoms" type="checkbox" checked />
+              <span style="font-size:11px; color:var(--text3);">Scale atoms with lattice</span>
+            </label>
+            <div class="tool-panel-actions">
+              <button id="la-update-real" class="tool-panel-btn">Apply Scale</button>
+              <button id="la-apply" class="tool-panel-btn primary">Apply Lattice</button>
+              <button id="la-cancel" class="tool-panel-btn">Cancel</button>
+            </div>
+            <div id="la-error" class="tool-panel-error"></div>
           </div>
 
           <div id="atom-info">
