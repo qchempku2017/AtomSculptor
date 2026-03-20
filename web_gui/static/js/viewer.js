@@ -71,7 +71,9 @@ export function initViewer() {
 
   S.scene = new THREE.Scene();
 
-  S.camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1000);
+  // Keep a persistent perspective camera and an optional orthographic camera.
+  S.perspCamera = new THREE.PerspectiveCamera(45, 1, 0.01, 1000);
+  S.camera = S.perspCamera;
   S.camera.up.set(WORLD_UP.x, WORLD_UP.y, WORLD_UP.z);
   S.camera.position.set(
     INITIAL_VIEW_DIRECTION_XY.x * 20,
@@ -98,6 +100,16 @@ export function initViewer() {
 
   raycaster = new THREE.Raycaster();
   rayNdc = new THREE.Vector2();
+  // Wire camera toggle button
+  const camBtn = $("#tb-camera");
+  if (camBtn) {
+    camBtn.addEventListener("click", () => {
+      const next = S.cameraMode === "orthographic" ? "perspective" : "orthographic";
+      setCameraMode(next);
+      camBtn.dataset.tip = `Camera: ${next.charAt(0).toUpperCase() + next.slice(1)}`;
+      camBtn.classList.toggle("active", next === "orthographic");
+    });
+  }
 
   resizeRenderer();
   new ResizeObserver(resizeRenderer).observe(wrap);
@@ -111,6 +123,9 @@ function resizeRenderer() {
   S.renderer.setSize(w, h, false);
   S.camera.aspect = w / h;
   S.camera.updateProjectionMatrix();
+
+  // Update orthographic frustum if present
+  if (S.orthoCamera) updateOrthoFrustum();
 }
 
 function loop() {
@@ -132,6 +147,63 @@ function updateCameraClippingPlanes() {
   S.camera.near = near;
   S.camera.far = far;
   S.camera.updateProjectionMatrix();
+}
+
+
+function updateOrthoFrustum() {
+  if (!S.orthoCamera) return;
+  const fitRadius = computeFitRadius();
+  const halfH = fitRadius * CAMERA_FIT_MARGIN;
+  // Use actual canvas aspect to avoid relying on current camera.aspect
+  const canvas = S.renderer && S.renderer.domElement;
+  const aspect = canvas && canvas.clientWidth && canvas.clientHeight
+    ? canvas.clientWidth / canvas.clientHeight
+    : (S.perspCamera && S.perspCamera.aspect) || 1;
+  const halfW = halfH * Math.max(aspect, 1e-3);
+  S.orthoCamera.left = -halfW;
+  S.orthoCamera.right = halfW;
+  S.orthoCamera.top = halfH;
+  S.orthoCamera.bottom = -halfH;
+  S.orthoCamera.near = Math.max(CAMERA_NEAR_MIN, fitRadius * CAMERA_NEAR_FACTOR);
+  S.orthoCamera.far = Math.max(CAMERA_FAR_MIN, fitRadius * CAMERA_FAR_FACTOR);
+  S.orthoCamera.updateProjectionMatrix();
+}
+
+
+function createOrthoCamera() {
+  const fitRadius = computeFitRadius();
+  const halfH = fitRadius * CAMERA_FIT_MARGIN;
+  // Derive aspect from renderer canvas to keep proportions correct
+  const canvas = S.renderer && S.renderer.domElement;
+  const aspect = canvas && canvas.clientWidth && canvas.clientHeight
+    ? canvas.clientWidth / canvas.clientHeight
+    : (S.perspCamera && S.perspCamera.aspect) || 1;
+  const halfW = halfH * Math.max(aspect, 1e-3);
+  const near = Math.max(CAMERA_NEAR_MIN, fitRadius * CAMERA_NEAR_FACTOR);
+  const far = Math.max(CAMERA_FAR_MIN, fitRadius * CAMERA_FAR_FACTOR);
+  S.orthoCamera = new THREE.OrthographicCamera(-halfW, halfW, halfH, -halfH, near, far);
+  S.orthoCamera.up.set(WORLD_UP.x, WORLD_UP.y, WORLD_UP.z);
+  S.orthoCamera.position.copy(S.camera.position);
+  S.orthoCamera.lookAt(S.controls.target);
+}
+
+
+export function setCameraMode(mode) {
+  if (mode === S.cameraMode) return;
+  if (mode === "orthographic") {
+    if (!S.orthoCamera) createOrthoCamera();
+    S.camera = S.orthoCamera;
+  } else {
+    S.camera = S.perspCamera;
+  }
+  S.cameraMode = mode;
+  // update controls to point to the new camera object
+  if (S.controls) {
+    S.controls.object = S.camera;
+    S.controls.update();
+  }
+  updateCameraClippingPlanes();
+  if (S.camera.updateProjectionMatrix) S.camera.updateProjectionMatrix();
 }
 
 export function rebuildScene() {
@@ -412,8 +484,10 @@ function setCameraViewDirection(viewDir) {
   if (!S.atoms.length) return;
 
   const fitRadius = computeFitRadius();
-  const vFov = THREE.MathUtils.degToRad(S.camera.fov);
-  const hFov = 2 * Math.atan(Math.tan(vFov / 2) * Math.max(S.camera.aspect, 1e-3));
+  // Use perspective FOV for distance calculation so view framing is consistent
+  const fovDeg = (S.perspCamera && S.perspCamera.fov) ? S.perspCamera.fov : 45;
+  const vFov = THREE.MathUtils.degToRad(fovDeg);
+  const hFov = 2 * Math.atan(Math.tan(vFov / 2) * Math.max(S.perspCamera.aspect || 1, 1e-3));
   const limitingHalfFov = Math.min(vFov, hFov) / 2;
   const camDistance = (fitRadius * CAMERA_FIT_MARGIN) / Math.sin(limitingHalfFov);
 
@@ -421,6 +495,7 @@ function setCameraViewDirection(viewDir) {
   S.camera.position.copy(viewDir.clone().normalize().multiplyScalar(camDistance));
   S.controls.target.set(0, 0, 0);
   updateCameraClippingPlanes();
+  if (S.orthoCamera) updateOrthoFrustum();
   S.controls.update();
 }
 

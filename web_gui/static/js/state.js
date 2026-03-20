@@ -13,6 +13,7 @@ export const S = {
   renderer: null,
   scene: null,
   camera: null,
+  cameraMode: "perspective",
   controls: null,
   rafId: null,
 
