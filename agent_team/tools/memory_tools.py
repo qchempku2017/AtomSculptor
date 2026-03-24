@@ -33,9 +33,9 @@ def _format_task_report(
     task_type: str,
     success: bool,
     plan: str | None,
-    errors_summary: str,
-    fix: str,
-    useful_info: str,
+    errors_summary: str | None,
+    fix: str | None,
+    useful_info: str | None,
 ) -> str:
     """Build a consistent markdown report for planner notes."""
     plan_text = plan.strip() if plan and plan.strip() else "N/A"
@@ -58,9 +58,9 @@ def write_notes(
     task_type: str,
     success: bool,
     plan: str | None,
-    errors_summary: str,
-    fix: str,
-    useful_info: str,
+    errors_summary: str| None,
+    fix: str | None,
+    useful_info: str | None,
     tool_context: ToolContext,
 ) -> dict:
     """Append a structured task report to the current session note file."""
@@ -85,9 +85,9 @@ def rewrite_notes(
     task_type: str,
     success: bool,
     plan: str | None,
-    errors_summary: str,
-    fix: str,
-    useful_info: str,
+    errors_summary: str | None,
+    fix: str | None,
+    useful_info: str | None,
     tool_context: ToolContext,
 ) -> dict:
     """Rewrite the session note file with one structured task report."""
@@ -190,7 +190,7 @@ def _delete_marked_notes(tool_context: ToolContext) -> dict:
     }
 
 
-def read_instruction(instruction_file: str, tool_context: ToolContext) -> dict:
+def read_instruction(tool_context: ToolContext, instruction_file: str) -> dict:
     """Read the contents of a specific instruction file."""
     instructions_path.mkdir(parents=True, exist_ok=True)
     candidate = Path(instruction_file.strip())

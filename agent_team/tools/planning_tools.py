@@ -31,6 +31,7 @@ def reset_plan():
     }
 
 def create_plan(
+    tool_context: ToolContext,
     tasks: List[str], 
     dependencies: dict = None,
     skills_required: dict = None,
@@ -73,9 +74,12 @@ def create_plan(
     plan = Plan(task_objects)
     todo_flow.set_plan(plan)
 
+    tool_context.state["current_stage"] = "modelling"
+
     return {
         "status": "success",
-        "plan": todo_flow.summary(verbose=True)
+        "plan": todo_flow.summary(verbose=True),
+        "message": "Plan created and current stage set to `modelling`."
     }
 
 def revise_plan(
@@ -169,7 +173,7 @@ def get_plan_summary(verbose=True):
         "plan": summary
     }
 
-def start_task(task_id: int, tool_context: ToolContext):
+def start_task(tool_context: ToolContext, task_id: int):
     """
     Mark a task as in progress if it's ready to be started (i.e., all dependencies are met).
     

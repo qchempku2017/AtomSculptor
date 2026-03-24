@@ -8,7 +8,6 @@ _RUNTIME_TOOLBOX_GROUPS = {
             "structure_tools.py": "agent_team.toolbox.structure_modelling.structure_tools",
             "crystal_builder.py": "agent_team.toolbox.structure_modelling.crystal_builder",
         },
-        "docs": ["doc.md"],
     },
 }
 
@@ -33,6 +32,11 @@ def _runtime_doc(source_doc: Path) -> str:
         "The actual implementation lives in the installed AtomSculptor package under `agent_team.toolbox.structure_modelling`.\n\n"
     )
     return header + source_doc.read_text(encoding="utf-8")
+
+
+def _doc_name_for_launcher(relative_file: str) -> str:
+    tool_path = Path(relative_file)
+    return str(tool_path.with_name(f"{tool_path.stem}_doc.md"))
 
 
 def _copy_markdown_tree(source_dir: Path, target_dir: Path) -> None:
@@ -69,7 +73,7 @@ def materialize_runtime_toolbox(runtime_dir: str | Path, python_executable: str 
                 encoding="utf-8",
             )
 
-        for doc_name in group.get("docs", []):
+            doc_name = _doc_name_for_launcher(relative_file)
             source_doc = source_toolbox_dir / group_name / doc_name
             runtime_doc = group_dir / doc_name
             runtime_doc.parent.mkdir(parents=True, exist_ok=True)
