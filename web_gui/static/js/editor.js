@@ -23,6 +23,7 @@ import {
 } from "./structure.js";
 import { updateGizmo, nudgeTransform, isGizmoActive } from "./gizmo.js";
 import { closeAllPanels, toggleAddPanel } from "./panels.js";
+import { toggleSelectionPanel } from "./panels.js";
 
 const TRANSFORM_MODES = new Set(["translate", "rotate", "scale"]);
 
@@ -339,6 +340,16 @@ export function wireToolbar() {
       if (mode) setMode(mode);
     });
   });
+
+  // Override box button to open the selection panel instead of immediately switching to box mode
+  const boxBtn = $("#tb-box");
+  if (boxBtn) {
+    boxBtn.addEventListener("click", (e) => {
+      // Prevent default mode toggle
+      e.stopPropagation();
+      toggleSelectionPanel();
+    });
+  }
 
   $("#tb-reset").addEventListener("click", () => {
     closeAllPanels();

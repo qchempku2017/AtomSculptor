@@ -153,6 +153,20 @@ body.col-dragging { cursor: col-resize !important; user-select: none; }
   border-radius: 3px;
 }
 .panel-hdr button:hover { color: var(--text); background: var(--bg-hover); }
+.panel-hdr .panel-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  color: var(--text2);
+  font-size: 12px;
+}
+.panel-hdr .panel-btn:hover { background: var(--bg-hover); color: var(--text); }
+.panel-hdr .panel-btn .rs-icon { font-size: 14px; line-height:1; }
+.panel-hdr .panel-btn .rs-label { white-space: nowrap; }
 .panel-body { flex: 1; overflow-y: auto; position: relative; }
 
 #panel-todo { grid-area: todo; }

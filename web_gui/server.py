@@ -28,6 +28,7 @@ from .helpers import STATIC_DIR
 from .routes import (
     index,
     api_todo_flow,
+    api_reset,
     api_files,
     api_file_content,
     api_structure,
@@ -48,6 +49,7 @@ app = Starlette(
     routes=[
         Route("/", index),
         Route("/api/todo-flow", api_todo_flow),
+        Route("/api/reset", api_reset, methods=["POST"]),
         Route("/api/files", api_files),
         Route("/api/file-content", api_file_content),
         Route("/api/structure/save", api_structure_save, methods=["POST"]),

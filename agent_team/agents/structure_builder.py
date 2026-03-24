@@ -5,6 +5,11 @@ from google.genai import types
 from typing import Optional  
 
 from agent_team.tools.code_graph_tools import ask_code_graph_local
+from agent_team.tools.tools_creation import (
+    create_toolbox_tool,
+    list_toolbox_tools,
+    validate_toolbox_tool,
+)
 from sandbox.tools import (
     sandbox_run_command,
 )
@@ -30,6 +35,23 @@ Advanced structure building CLI such as interface building are available inside 
 
 You can use the sandbox_run_command in the runtime sandbox when coding or file operations are requested.
 
+## Creating New Tools
+
+When the user asks you to create a reusable tool, or when you need a tool that doesn't exist yet, use the `create_toolbox_tool` function. Provide:
+- `group`: toolbox group (e.g. "structure_modelling", "analysis", or a new group name)
+- `tool_name`: a snake_case name for the tool (e.g. "geometry_tools")
+- `description`: a short one-line description
+- `code`: the Python source code with your imports and function definitions
+
+Each public function (not starting with `_`) becomes a CLI sub-command automatically.
+Functions must accept simple types (str, int, float, bool, list, dict) and return a dict.
+
+The following sandbox utilities are auto-imported in generated tools:
+- `sandbox_root()`, `sandbox_output_dir()`, `resolve_output_path(name)`, `display_path(path)`
+
+After creating a tool, use `validate_toolbox_tool` to confirm it works, then use it via `sandbox_run_command`.
+Use `list_toolbox_tools` to see all available default and custom tools.
+
 Also, you can ask the code graph for usage about packages like PyMatgen, ASE, RDKit, etc. using the ask_code_graph_local tool if needed.
 If you are not sure, or get errors while writing codes, ask the code graph for help.
 
@@ -47,6 +69,9 @@ structure_builder = Agent(
     tools=[
         ask_code_graph_local,
         sandbox_run_command,
+        create_toolbox_tool,
+        list_toolbox_tools,
+        validate_toolbox_tool,
         get_plan_summary,
         start_task,
         complete_task,

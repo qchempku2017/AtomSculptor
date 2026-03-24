@@ -19,7 +19,7 @@ import { S } from "./state.js";
 import { $ } from "./utils.js";
 import { connect, wsSend } from "./websocket.js";
 import { wireChat } from "./chat.js";
-import { initGraph } from "./todo.js";
+import { initGraph, updateTodo } from "./todo.js";
 import { initViewer } from "./viewer.js";
 import { initLayersPanel } from "./layers.js";
 import { setupCanvasEvents, setMode, wireToolbar, wireKeyboardShortcuts } from "./editor.js";
@@ -107,6 +107,46 @@ document.addEventListener("DOMContentLoaded", () => {
   // Wire non-chat header/panel buttons
   $("#btn-refresh-todo").addEventListener("click", () => wsSend({ type: "refresh_todo" }));
   $("#btn-refresh-files").addEventListener("click", () => wsSend({ type: "refresh_files" }));
+
+  // Reset sessions and todo flow
+  const resetBtn = $("#btn-reset-session");
+  if (resetBtn) {
+    resetBtn.addEventListener("click", async () => {
+      if (!confirm("Reset all sessions and the todo flow?")) return;
+      try {
+        const res = await fetch("/api/reset", { method: "POST" });
+        const data = await res.json();
+        if (data && data.ok) {
+          // Clear chat UI and reconnect websocket to get a fresh server session
+          const chat = document.getElementById("chat-messages");
+          if (chat) chat.innerHTML = "";
+          try {
+            if (window.S && window.S.ws) {
+              try { window.S.ws.close(); } catch (e) {}
+              window.S.ws = null;
+            }
+          } catch (e) {}
+          // reconnect
+          try { connect(); } catch (e) {}
+
+          // Also fetch fresh todo-flow directly and update UI immediately
+          try {
+            const tf = await fetch('/api/todo-flow');
+            if (tf && tf.ok) {
+              const j = await tf.json();
+              try { updateTodo(j); } catch (e) {}
+            }
+          } catch (e) {}
+
+          alert("Reset complete.");
+        } else {
+          alert("Reset failed: " + (data && data.error ? data.error : res.status));
+        }
+      } catch (err) {
+        alert("Reset request failed: " + err);
+      }
+    });
+  }
 
   connect();
 

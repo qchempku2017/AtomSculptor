@@ -632,6 +632,10 @@ export function setSelectedAtomLayers(layerIds) {
   if (arraysEqual(before, after)) return false;
 
   S.selectedLayerIds = new Set(selected);
+  // If the user explicitly changed which atom layers are selected, ensure
+  // any temporary selection-overlay hiding is reset so future selections
+  // are visible (don't keep atoms invisibly hidden from a previous state).
+  S.selectionLayerHidden = false;
   enforceLayerSelectionConstraints();
   updateAtomVisuals();
   updateStatusBar();
@@ -651,6 +655,8 @@ export function addAtomsLayer() {
     pbc: clonePbc(S.pbc),
   });
   S.selectedLayerIds = new Set([id]);
+  // Ensure selection overlay is visible/reset after creating/selecting a new layer
+  S.selectionLayerHidden = false;
   enforceLayerSelectionConstraints();
   updateAtomVisuals();
   updateStatusBar();
@@ -675,6 +681,9 @@ export function deleteSelectedAtomLayers() {
 
   const fallback = getAtomLayers()[0]?.id;
   S.selectedLayerIds = fallback ? new Set([fallback]) : new Set();
+  // Reset selection-overlay hiding when layers are removed so subsequent
+  // selections aren't inadvertently invisible due to a previous hide toggle.
+  S.selectionLayerHidden = false;
   enforceLayerSelectionConstraints();
   rebuildScene();
   updateStatusBar();
@@ -701,6 +710,9 @@ export function mergeSelectedAtomLayers() {
   }
   S.layers = S.layers.filter((layer) => !(layer.type === "atoms" && merged.has(layer.id)));
   S.selectedLayerIds = new Set([target]);
+  // Merging changes which layers are active; reset selection overlay hiding
+  // so visual state isn't carried unexpectedly into the merged layer.
+  S.selectionLayerHidden = false;
 
   enforceLayerSelectionConstraints();
   rebuildScene();
@@ -771,12 +783,69 @@ export function extractSelectedToNewLayer() {
 
   // Select the new layer and clear selection of layers as appropriate
   S.selectedLayerIds = new Set([id]);
+  // Reset any selection-overlay hiding when we change selection layers via extraction
+  S.selectionLayerHidden = false;
   enforceLayerSelectionConstraints();
   rebuildScene();
   updateStatusBar();
   emitLayersChanged();
   recordStructureEdit(before);
   return { ok: true, layerId: id };
+}
+
+/* ── Selection utilities ─────────────────────────────────────────────────── */
+
+export async function selectAtomsByTypes(symbols) {
+  if (!Array.isArray(symbols)) symbols = [symbols];
+  const set = new Set(symbols.map(s => String(s).trim()).filter(Boolean));
+  const before = snapshotStructureState();
+  S.selected = new Set(S.atoms.filter((a) => set.has(a.symbol) && S.selectedLayerIds.has(a.layerId)).map((a) => a.id));
+  enforceLayerSelectionConstraints();
+  rebuildScene();
+  updateStatusBar();
+  emitLayersChanged();
+  recordStructureEdit(before);
+  return { ok: true, count: S.selected.size };
+}
+
+export async function expandSelectionByRadius(radius) {
+  const before = snapshotStructureState();
+  if (!Number.isFinite(radius) || radius <= 0) return { ok: false, error: 'Invalid radius' };
+  const sel = new Set(S.selected);
+  const selAtoms = S.atoms.filter((a) => sel.has(a.id));
+  if (!selAtoms.length) return { ok: false, error: 'No atoms selected to expand from' };
+  const r2 = radius * radius;
+  for (const atom of S.atoms) {
+    if (!S.selectedLayerIds.has(atom.layerId)) continue;
+    if (sel.has(atom.id)) continue;
+    for (const s of selAtoms) {
+      const dx = atom.x - s.x; const dy = atom.y - s.y; const dz = atom.z - s.z;
+      if ((dx*dx + dy*dy + dz*dz) <= r2) { sel.add(atom.id); break; }
+    }
+  }
+  S.selected = sel;
+  enforceLayerSelectionConstraints();
+  rebuildScene();
+  updateStatusBar();
+  emitLayersChanged();
+  recordStructureEdit(before);
+  return { ok: true, count: S.selected.size };
+}
+
+export async function invertSelection() {
+  const before = snapshotStructureState();
+  const newSel = new Set();
+  for (const atom of S.atoms) {
+    if (!S.selectedLayerIds.has(atom.layerId)) continue;
+    if (!S.selected.has(atom.id)) newSel.add(atom.id);
+  }
+  S.selected = newSel;
+  enforceLayerSelectionConstraints();
+  rebuildScene();
+  updateStatusBar();
+  emitLayersChanged();
+  recordStructureEdit(before);
+  return { ok: true, count: S.selected.size };
 }
 
 // ── Structure building tools ────────────────────────────────────────────────
@@ -890,11 +959,26 @@ export async function buildSupercell(matrix) {
 }
 
 // Listen for viewer-driven open requests (e.g., drag-and-drop onto viewer)
-document.addEventListener("atomsculptor:open-structure", (event) => {
+document.addEventListener("atomsculptor:open-structure", async (event) => {
   try {
-    if (event && event.detail && event.detail.path) {
-      loadStructure(event.detail.path);
+    if (!event || !event.detail || !event.detail.path) return;
+    const path = event.detail.path;
+    const addToNew = Boolean(event.detail.addToNewLayer);
+
+    // If the viewer requested appending to a new atoms layer and we already have layers,
+    // create a new layer and append the structure into it. Otherwise, open as a new structure.
+    if (addToNew && Array.isArray(S.layers) && S.layers.length > 0) {
+      try {
+        const layerId = addAtomsLayer();
+        const result = await appendStructureToLayer(path, layerId);
+        if (!result.ok) console.error("appendStructureToLayer failed", result.error);
+      } catch (e) {
+        console.error("open-structure append handler", e);
+      }
+      return;
     }
+
+    loadStructure(path);
   } catch (e) {
     console.error("open-structure handler", e);
   }
