@@ -341,8 +341,9 @@ function buildBonds(c) {
   const cylGeo = new THREE.CylinderGeometry(0.08, 0.08, 1, 8, 1);
   const up = new THREE.Vector3(0, 1, 0);
 
-  // Extract cell vectors
-  const [v0, v1, v2] = S.cell;
+  // Extract cell vectors (fallback to zero vectors for non-box structures)
+  const cellVecs = Array.isArray(S.cell) && S.cell.length === 3 ? S.cell : [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  const [v0, v1, v2] = cellVecs;
 
   const radii = S.atoms.map(a => ELEM_RADIUS[a.symbol] || ELEM_RADIUS.default);
   const atomColors = S.atoms.map(a => new THREE.Color(elemColor(a.symbol)));
@@ -402,7 +403,22 @@ function buildBonds(c) {
   }
 
   function addHalfBond(atom, direction, length, color, idxA, idxB) {
+    const layerA = S.layers.find((l) => l.id === S.atoms[idxA]?.layerId);
+    const layerB = S.layers.find((l) => l.id === S.atoms[idxB]?.layerId);
+    // Hide bonds when either endpoint's layer is hidden
+    if (layerA?.hidden || layerB?.hidden) return;
+    // Hide bonds connected to selected atoms when the selection overlay is hidden
+    if (S.selectionLayerHidden) {
+      const aId = S.atoms[idxA] && S.atoms[idxA].id;
+      const bId = S.atoms[idxB] && S.atoms[idxB].id;
+      if ((aId !== undefined && S.selected.has(aId)) || (bId !== undefined && S.selected.has(bId))) return;
+    }
     const mesh = new THREE.Mesh(cylGeo, new THREE.MeshPhongMaterial({color}));
+    // Attach endpoint atom ids so we can update bond visibility later without rebuilding
+    mesh.userData = {
+      aId: S.atoms[idxA] && S.atoms[idxA].id,
+      bId: S.atoms[idxB] && S.atoms[idxB].id,
+    };
     const pos = new THREE.Vector3(atom.x, atom.y, atom.z)
       .addScaledVector(direction, length / 2)
       .sub(c); // Apply camera/center offset
@@ -412,6 +428,33 @@ function buildBonds(c) {
     mesh.quaternion.setFromUnitVectors(up, direction);
     S.scene.add(mesh);
     S.bondMeshes.push(mesh);
+  }
+}
+
+function updateBondVisuals() {
+  if (!S.bondMeshes || !S.bondMeshes.length) return;
+  for (const mesh of S.bondMeshes) {
+    if (!mesh || !mesh.userData) continue;
+    const aId = mesh.userData.aId;
+    const bId = mesh.userData.bId;
+    const a = S.atoms.find((x) => x.id === aId);
+    const b = S.atoms.find((x) => x.id === bId);
+    const layerA = a && S.layers.find((l) => l.id === a.layerId);
+    const layerB = b && S.layers.find((l) => l.id === b.layerId);
+
+    // Hide if either endpoint's layer is hidden
+    if (layerA?.hidden || layerB?.hidden) {
+      mesh.visible = false;
+      continue;
+    }
+
+    // Hide bonds connected to selected atoms when selection overlay is hidden
+    if (S.selectionLayerHidden && ((aId !== undefined && S.selected.has(aId)) || (bId !== undefined && S.selected.has(bId)))) {
+      mesh.visible = false;
+      continue;
+    }
+
+    mesh.visible = true;
   }
 }
 
@@ -450,6 +493,15 @@ function applyAtomVisualById(id) {
   const mesh = S.atomMeshes[idx];
   if (!mesh) return;
   const atom = S.atoms[idx];
+  const layer = atom && S.layers.find((l) => l.id === atom.layerId);
+  // If the temporary selection overlay is hidden, hide any selected atoms.
+  if (S.selectionLayerHidden && S.selected.has(id)) {
+    mesh.visible = false;
+    return;
+  }
+
+  mesh.visible = !layer?.hidden;
+  if (layer?.hidden) return;
   const inSelectedLayer = Boolean(atom && S.selectedLayerIds.has(atom.layerId));
 
   const base = mesh.userData.baseColor;
@@ -488,7 +540,9 @@ function areSetsEqual(a, b) {
 }
 
 export function updateAtomVisuals(forceFull = false) {
-  if (forceFull || visualsNeedFullRefresh || !areSetsEqual(lastSelectedIds, S.selected)) {
+  const selectionChanged = !areSetsEqual(lastSelectedIds, S.selected);
+
+  if (forceFull || visualsNeedFullRefresh || selectionChanged) {
     if (forceFull || visualsNeedFullRefresh || S.atomMeshes.length <= 300) {
       for (const atom of S.atoms) applyAtomVisualById(atom.id);
     } else {
@@ -508,6 +562,11 @@ export function updateAtomVisuals(forceFull = false) {
   lastHoveredId = S.hovered;
   visualsNeedFullRefresh = false;
   updateAtomInfoPanel();
+
+  // Notify layers UI when selection changes so the temporary selection row updates.
+  if (selectionChanged) document.dispatchEvent(new CustomEvent("atomsculptor:layers-changed"));
+  // Also update bond visuals to reflect selection/visibility changes
+  updateBondVisuals();
 }
 
 function updateAtomInfoPanel() {

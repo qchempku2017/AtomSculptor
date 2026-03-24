@@ -17,6 +17,7 @@ import {
   exportStructure,
   exportStructureWithPicker,
   snapshotStructureState,
+  LAYERS_CHANGED_EVENT,
 } from "./structure.js";
 import { setMode } from "./editor.js";
 
@@ -251,6 +252,7 @@ function addAtomFromPanel() {
 
   S.selected = new Set([newId]);
   S.hovered = null;
+  document.dispatchEvent(new CustomEvent(LAYERS_CHANGED_EVENT));
   clearError("#add-error");
   setMode("translate");
 }

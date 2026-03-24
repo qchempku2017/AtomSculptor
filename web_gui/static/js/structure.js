@@ -735,6 +735,50 @@ export function useLatticeFromLayer(layerId) {
   return { ok: true };
 }
 
+export function toggleLayerVisibility(layerId) {
+  const layer = S.layers.find((l) => l.id === layerId);
+  if (!layer) return;
+  layer.hidden = !layer.hidden;
+  rebuildScene();
+  emitLayersChanged();
+}
+
+export function toggleSelectionLayerVisibility() {
+  S.selectionLayerHidden = !S.selectionLayerHidden;
+  rebuildScene();
+  emitLayersChanged();
+  return { ok: true, hidden: S.selectionLayerHidden };
+}
+
+export function extractSelectedToNewLayer() {
+  if (!S.selected || S.selected.size === 0) return { ok: false, error: "No atoms selected." };
+  normalizeLayerState();
+  const before = snapshotStructureState();
+  const id = createLayerId();
+  const layer = {
+    id,
+    type: "atoms",
+    name: `Atoms ${S.layerSeq}`,
+    cell: cloneCell(S.cell),
+    pbc: clonePbc(S.pbc),
+  };
+  S.layers.push(layer);
+
+  // Move selected atoms onto the new layer
+  for (const atom of S.atoms) {
+    if (S.selected.has(atom.id)) atom.layerId = id;
+  }
+
+  // Select the new layer and clear selection of layers as appropriate
+  S.selectedLayerIds = new Set([id]);
+  enforceLayerSelectionConstraints();
+  rebuildScene();
+  updateStatusBar();
+  emitLayersChanged();
+  recordStructureEdit(before);
+  return { ok: true, layerId: id };
+}
+
 // ── Structure building tools ────────────────────────────────────────────────
 
 function applyBuiltStructure(data) {

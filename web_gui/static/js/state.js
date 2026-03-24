@@ -39,6 +39,8 @@ export const S = {
   gizmoJustDragged: false,
 
   boxStart: null,
+  // Controls visibility of the temporary selection overlay layer
+  selectionLayerHidden: false,
 };
 
 export const STRUCTURE_EXTS = new Set([

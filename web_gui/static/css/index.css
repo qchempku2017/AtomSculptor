@@ -135,6 +135,14 @@ body.col-dragging { cursor: col-resize !important; user-select: none; }
   user-select: none;
 }
 
+/* Keep panel header styling uppercase, but allow specific labels
+   (like the structure filename) to preserve original casing. */
+.panel-hdr #struct-file-label {
+  text-transform: none;
+  font-weight: 400;
+  color: var(--text3);
+}
+
 .panel-hdr button {
   background: none;
   border: none;
@@ -280,6 +288,38 @@ body.col-dragging { cursor: col-resize !important; user-select: none; }
 .layer-item:hover .li-actions {
   opacity: 1;
   pointer-events: auto;
+}
+
+.li-vis {
+  display: inline-flex;
+  align-items: center;
+  background: none;
+  border: none;
+  color: var(--text3);
+  cursor: pointer;
+  padding: 0 2px;
+  opacity: 0.3;
+  flex-shrink: 0;
+  transition: opacity 0.12s, color 0.12s;
+}
+
+.layer-item:hover .li-vis {
+  opacity: 0.7;
+}
+
+.layer-item:hover .li-vis:hover {
+  opacity: 1;
+  color: var(--text);
+}
+
+.layer-item.layer-hidden .li-vis {
+  opacity: 1;
+  color: var(--text2);
+}
+
+.layer-item.layer-hidden .li-name,
+.layer-item.layer-hidden .li-meta {
+  opacity: 0.45;
 }
 
 .li-use-lattice {
