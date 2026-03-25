@@ -27,6 +27,11 @@ class Task:
     dependencies: List[int] = field(default_factory=list)
     result: Optional[str] = None
 
+    @property
+    def is_terminal(self) -> bool:
+        """True if the task is in a final state (DONE or DEPRECATED)."""
+        return self.status in (TaskStatus.DONE, TaskStatus.DEPRECATED)
+
     def to_dict(self):
         return {
             "uuid": self.uuid,

@@ -1,6 +1,6 @@
 # planning with the todo flow
 from typing import List
-from agent_team.state import todo_flow
+from agent_team.context import get_context
 from agent_team.planning.task import Task, TaskStatus
 from agent_team.planning.plan import Plan
 
@@ -25,7 +25,7 @@ def reset_plan():
     """
     Reset the current plan and clear all tasks.
     """
-    todo_flow.reset()
+    get_context().todo_flow.reset()
     return {
         "status": "success",
     }
@@ -72,13 +72,14 @@ def create_plan(
         task_objects.append(Task(description=desc, id=task_id, dependencies=deps, skills_required=skills, instructions_required=instructions))
 
     plan = Plan(task_objects)
-    todo_flow.set_plan(plan)
+    ctx = get_context()
+    ctx.todo_flow.set_plan(plan)
 
     tool_context.state["current_stage"] = "modelling"
 
     return {
         "status": "success",
-        "plan": todo_flow.summary(verbose=True),
+        "plan": ctx.todo_flow.summary(verbose=True),
         "message": "Plan created and current stage set to `modelling`."
     }
 
@@ -116,11 +117,12 @@ def revise_plan(
             "error": f"Invalid dependencies format: {e}. Use JSON objects like {{\"2\": [4, 5]}}."
         }
 
-    if todo_flow.plan is None:
+    flow = get_context().todo_flow
+    if flow.plan is None:
         raise ValueError("No existing plan to revise. Please create a plan first.")
 
     # Create new Task objects for the new descriptions
-    starting_id = len(todo_flow.plan.tasks) + 1
+    starting_id = flow.plan.next_id
     new_tasks = []
     for i, desc in enumerate(add_tasks):
         task_id = starting_id + i
@@ -129,7 +131,7 @@ def revise_plan(
         instructions = instructions_required.get(task_id, []) if instructions_required else []
         new_tasks.append(Task(description=desc, id=task_id, dependencies=deps, skills_required=skills, instructions_required=instructions))
 
-    todo_flow.revise_plan(
+    flow.revise_plan(
         new_tasks=new_tasks,
         add_dependencies=add_dependencies,
         deprecate_tasks=deprecate_tasks,
@@ -139,21 +141,21 @@ def revise_plan(
     # Apply skill/instruction updates for existing tasks (including empty lists)
     if skills_required is not None:
         for task_id, task_skills in skills_required.items():
-            task = todo_flow.plan.get_task(task_id)
+            task = flow.plan.get_task(task_id)
             if task is None:
                 raise ValueError(f"Task {task_id} not found in plan")
             task.skills_required = task_skills or []
 
     if instructions_required is not None:
         for task_id, task_instructions in instructions_required.items():
-            task = todo_flow.plan.get_task(task_id)
+            task = flow.plan.get_task(task_id)
             if task is None:
                 raise ValueError(f"Task {task_id} not found in plan")
             task.instructions_required = task_instructions or []
 
     return {
         "status": "success",
-        "new plan": todo_flow.summary(verbose=True)
+        "new plan": flow.summary(verbose=True)
     }
 
 def get_plan_summary(verbose=True):
@@ -163,12 +165,13 @@ def get_plan_summary(verbose=True):
     Args:
         verbose: If True, include unmet dependencies in the summary.
     """
-    if todo_flow.plan is None:
+    flow = get_context().todo_flow
+    if flow.plan is None:
         return {
             "plan": None
         }
     
-    summary = todo_flow.summary(verbose=verbose)
+    summary = flow.summary(verbose=verbose)
     return {
         "plan": summary
     }
@@ -180,11 +183,13 @@ def start_task(tool_context: ToolContext, task_id: int):
     Args:
         task_id: ID of the task to start.
     """
+    flow = get_context().todo_flow
     try:
-        todo_flow.start_task(task_id)
-        tool_context.state["current_task"] = todo_flow.plan.get_task(task_id).description
-        tool_context.state["skills_to_use"] = todo_flow.plan.get_task(task_id).skills_required
-        tool_context.state["instructions_to_read"] = todo_flow.plan.get_task(task_id).instructions_required
+        flow.start_task(task_id)
+        task = flow.plan.get_task(task_id)
+        tool_context.state["current_task"] = task.description
+        tool_context.state["skills_to_use"] = task.skills_required
+        tool_context.state["instructions_to_read"] = task.instructions_required
         return {
             "message": f"Task {task_id} started."
         }
@@ -202,7 +207,7 @@ def complete_task(tool_context: ToolContext, task_id: int, result=None):
         result: Optional result or output from completing the task.
     """
     try:
-        todo_flow.complete_task(task_id, result)
+        get_context().todo_flow.complete_task(task_id, result)
         tool_context.state["current_task"] = None
         tool_context.state["skills_to_use"] = []
         tool_context.state["instructions_to_read"] = []
@@ -218,12 +223,13 @@ def is_plan_finished():
     """
     Check if all tasks in the current plan are completed.
     """
-    if todo_flow.plan is None:
+    flow = get_context().todo_flow
+    if flow.plan is None:
         return {
             "message": "No plan exists."
         }
     
-    finished = todo_flow.is_finished()
+    finished = flow.is_finished()
     return {
         "finished": finished
     }

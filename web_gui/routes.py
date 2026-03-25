@@ -10,7 +10,7 @@ from .filesystem import sandbox_root, build_file_tree
 from .structure import read_structure, write_structure, resolve_ase_io_format
 from .todo import serialize_todo_flow
 from .agent_session import session_service, runner
-import agent_team.state as _agent_state
+from agent_team.context import get_context
 
 
 _EXPORT_FORMATS = {
@@ -418,7 +418,7 @@ async def api_reset(request):
 
         # Reset the shared todo flow
         try:
-            _agent_state.todo_flow.reset()
+            get_context().reset()
         except Exception:
             pass
 
