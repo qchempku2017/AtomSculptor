@@ -9,6 +9,8 @@ from .helpers import STATIC_DIR, asset_url, is_path_safe
 from .filesystem import sandbox_root, build_file_tree
 from .structure import read_structure, write_structure, resolve_ase_io_format
 from .todo import serialize_todo_flow
+from .agent_session import session_service, runner
+from agent_team.context import get_context
 
 
 _EXPORT_FORMATS = {
@@ -382,5 +384,44 @@ async def api_file_duplicate(request):
     try:
         copy2(fp, candidate)
         return JSONResponse({"ok": True, "path": str(candidate.relative_to(root))})
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+async def api_reset(request):
+    """POST /api/reset — clear in-memory sessions and reset the TodoFlow."""
+    try:
+        ss = session_service
+
+        # Preserve the app key to avoid "app_name ... not in sessions" warnings
+        app_name = getattr(runner, "app_name", "atom_sculptor")
+
+        if hasattr(ss, "sessions"):
+            try:
+                # Reset sessions map but keep the app_name present with an empty dict
+                ss.sessions.clear()
+                ss.sessions[app_name] = {}
+            except Exception:
+                ss.sessions = {app_name: {}}
+
+        if hasattr(ss, "user_state"):
+            try:
+                ss.user_state.clear()
+            except Exception:
+                ss.user_state = {}
+
+        if hasattr(ss, "app_state"):
+            try:
+                ss.app_state.clear()
+            except Exception:
+                ss.app_state = {}
+
+        # Reset the shared todo flow
+        try:
+            get_context().reset()
+        except Exception:
+            pass
+
+        return JSONResponse({"ok": True})
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)

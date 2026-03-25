@@ -7,7 +7,7 @@ The CLI tools have two help layers:
 - General help: `python3 path/to/tools.py -h`
 - Tool-specific help: `python3 path/to/tools.py <tool_name> -h`
 
-## 1. How To Use
+## How To Use
 
 ```bash
 python3 path/to/tools.py -h
@@ -24,7 +24,7 @@ Notes:
 
 ---
 
-## 2. structure_tools.py
+## structure_tools.py
 
 Tools for reading, manipulating, and analyzing existing structure files.
 
@@ -39,13 +39,3 @@ Tools for reading, manipulating, and analyzing existing structure files.
 - `check_close_atoms`
 - `build_interface`
 
----
-
-## 3. crystal_builder.py
-
-Tool for generating common bulk crystal structures from scratch.
-
-### Included Tools:
-
-- `build_bulk_crystal`
-- `list_crystal_structures`

@@ -12,6 +12,7 @@ runner = Runner(
     agent=root_agent,
     app_name="atom_sculptor",
     session_service=session_service,
+    auto_create_session=True,
 )
 
 

@@ -1,13 +1,14 @@
 """Todo-flow DAG serialisation."""
 
-from agent_team.state import todo_flow
+from agent_team.context import get_context
 
 
 def serialize_todo_flow() -> dict:
-    if todo_flow.plan is None:
+    flow = get_context().todo_flow
+    if flow.plan is None:
         return {"tasks": [], "finished": True}
     tasks = []
-    for t in todo_flow.plan.tasks:
+    for t in flow.plan.tasks:
         tasks.append({
             "id": t.id,
             "uuid": t.uuid,
@@ -16,4 +17,4 @@ def serialize_todo_flow() -> dict:
             "dependencies": t.dependencies,
             "result": t.result,
         })
-    return {"tasks": tasks, "finished": todo_flow.is_finished()}
+    return {"tasks": tasks, "finished": flow.is_finished()}

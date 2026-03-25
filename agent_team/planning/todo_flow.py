@@ -1,193 +1,159 @@
 from typing import Optional, List
 from agent_team.planning.plan import Plan
-from agent_team.planning.task import TaskStatus
+from agent_team.planning.task import Task, TaskStatus
 
 
 class TodoFlow:
+    """Execution engine for a task plan.
+
+    Responsibilities:
+    - Task lifecycle management (start / complete)
+    - Automatic readiness calculation based on dependency completion
+    - Plan revision (delegates graph mutations to Plan)
+
+    All "completed" information is derived directly from task statuses —
+    no redundant bookkeeping.
+    """
 
     def __init__(self):
         self.plan: Optional[Plan] = None
-        self.completed_tasks = set()
+
+    # -- plan lifecycle --------------------------------------------------------
 
     def set_plan(self, plan: Plan):
         self.plan = plan
-        self._update_ready_tasks()
+        self._refresh_statuses()
 
     def reset(self):
         self.plan = None
-        self.completed_tasks = set()
 
     def revise_plan(
-            self, 
-            new_tasks: List, 
-            add_dependencies: dict = None, 
-            deprecate_tasks: List[int] = None, 
-            remove_dependencies: dict = None
-        ):
-        """
-        Insert new tasks into the plan and optionally update dependencies of existing tasks.
-        
-        Args:
-            new_tasks: List of new Task objects to add to the plan
-            deprecate_tasks: Optional list of task IDs to mark as deprecated (wrong or not needed anymore). 
-                    The dependencies of the deprecated tasks will also be removed from other tasks.
-            add_dependencies: Optional dict mapping existing task IDs to lists of new dependency IDs to add.
-                    e.g., {2: [4, 5]} means task 2 should now also depend on tasks 4 and 5
-            remove_dependencies: Optional dict mapping existing task IDs to lists of dependency IDs to remove.
-                    e.g., {3: [1, 2]} means task 3 should no longer depend on tasks 1 and 2
-        """
+        self,
+        new_tasks: List[Task] = None,
+        add_dependencies: dict = None,
+        deprecate_tasks: List[int] = None,
+        remove_dependencies: dict = None,
+    ):
+        """Apply a batch of structural changes to the current plan.
 
+        Order of operations: add tasks → deprecate → remove deps → add deps.
+        Statuses are refreshed once at the end.
+        """
         if self.plan is None:
-            self.plan = Plan(new_tasks)
+            if new_tasks:
+                self.plan = Plan(new_tasks)
+            else:
+                raise ValueError("No plan to revise and no new tasks provided")
         else:
-            self.plan.tasks.extend(new_tasks)
+            if new_tasks:
+                self.plan.add_tasks(new_tasks)
+            if deprecate_tasks:
+                for task_id in deprecate_tasks:
+                    self.plan.deprecate_task(task_id)
+            if remove_dependencies:
+                for task_id, dep_ids in remove_dependencies.items():
+                    self.plan.remove_dependencies(task_id, dep_ids)
+            if add_dependencies:
+                for task_id, dep_ids in add_dependencies.items():
+                    self.plan.add_dependencies(task_id, dep_ids)
 
-        # Update dependencies of existing tasks if specified
-        if add_dependencies:
-            for task_id, new_deps in add_dependencies.items():
-                task = self.plan.get_task(task_id)
-                if task is None:
-                    raise ValueError(f"Task {task_id} not found in plan")
-                
-                # Add new dependencies, avoiding duplicates
-                for dep_id in new_deps:
-                    if dep_id not in task.dependencies:
-                        task.dependencies.append(dep_id)
+        self._refresh_statuses()
 
-        # Mark specified tasks as deprecated
-        if deprecate_tasks:
-            for task_id in deprecate_tasks:
-                task = self.plan.get_task(task_id)
-                if task is None:
-                    raise ValueError(f"Task {task_id} not found in plan")
-                task.status = TaskStatus.DEPRECATED
-                # remove the dependencies of the deprecated task from other tasks
-                for t in self.plan.tasks:
-                    if task_id in t.dependencies:
-                        t.dependencies.remove(task_id)
+    # -- task lifecycle --------------------------------------------------------
 
-        # Remove specified dependencies from existing tasks if specified
-        if remove_dependencies:
-            for task_id, deps_to_remove in remove_dependencies.items():
-                task = self.plan.get_task(task_id)
-                if task is None:
-                    raise ValueError(f"Task {task_id} not found in plan")
-                
-                # Remove specified dependencies
-                task.dependencies = [dep for dep in task.dependencies if dep not in deps_to_remove]
+    def start_task(self, task_id: int):
+        """Transition a task to IN_PROGRESS if all dependencies are met."""
+        task = self._get_task_or_raise(task_id)
+        unmet = self._unmet_dependencies(task)
+        if unmet:
+            desc = ", ".join(f"Task {t.id}" for t in unmet)
+            raise RuntimeError(
+                f"Task {task_id} cannot start — unmet dependencies: {desc}"
+            )
+        if task.status not in (TaskStatus.READY, TaskStatus.PENDING):
+            raise RuntimeError(
+                f"Task {task_id} cannot start from status '{task.status}'"
+            )
+        task.status = TaskStatus.IN_PROGRESS
 
-        self._update_ready_tasks()
-    
+    def complete_task(self, task_id: int, result=None):
+        """Mark a task as done and refresh downstream readiness."""
+        task = self._get_task_or_raise(task_id)
+        if task.status != TaskStatus.IN_PROGRESS:
+            raise RuntimeError(
+                f"Task {task_id} is '{task.status}', expected 'in_progress'"
+            )
+        task.status = TaskStatus.DONE
+        task.result = result
+        self._refresh_statuses()
 
-    def get_next_task(self):
-        """Return the next ready task, or None if no tasks are ready."""
+    # -- queries ---------------------------------------------------------------
 
+    def get_next_task(self) -> Optional[Task]:
+        """Return the first READY task, or None."""
         if self.plan is None:
             return None
-
         for task in self.plan.tasks:
             if task.status == TaskStatus.READY:
                 return task
-
         return None
-        
-    def get_unmet_dependencies(self, task):
-        """Return a list of unmet dependencies for a given task."""
-        unmet = []
 
-        for dep_id in task.dependencies:
-            dep = self.plan.get_task(dep_id)
-            if dep.status != TaskStatus.DONE:
-                unmet.append(dep)
+    def get_unmet_dependencies(self, task: Task) -> List[Task]:
+        """Public accessor for unmet deps of a task."""
+        return self._unmet_dependencies(task)
 
-        return unmet
+    def is_finished(self) -> bool:
+        if self.plan is None:
+            return True
+        return all(t.is_terminal for t in self.plan.tasks)
 
-    def start_task(self, task_id):
-        """Mark a task as IN_PROGRESS if it's ready and all dependencies are met."""
+    def summary(self, verbose: bool = False) -> str:
+        if self.plan is None:
+            return "No plan."
+        lines = []
+        for t in self.plan.tasks:
+            line = f"[{t.status}] {t.description}"
+            if verbose:
+                unmet = self._unmet_dependencies(t)
+                if unmet:
+                    ids = ", ".join(str(d.id) for d in unmet)
+                    line += f" (depends on: {ids})"
+            lines.append(line)
+        return "\n".join(lines)
+
+    # -- private helpers -------------------------------------------------------
+
+    def _get_task_or_raise(self, task_id: int) -> Task:
+        if self.plan is None:
+            raise ValueError("No plan exists")
         task = self.plan.get_task(task_id)
         if task is None:
             raise ValueError(f"Task {task_id} not found")
+        return task
 
-        # check dependencies
-        unmet = self.get_unmet_dependencies(task)
+    def _unmet_dependencies(self, task: Task) -> List[Task]:
+        """Return dependency tasks that are not yet DONE."""
+        if self.plan is None:
+            return []
+        unmet = []
+        for dep_id in task.dependencies:
+            dep = self.plan.get_task(dep_id)
+            if dep is not None and dep.status != TaskStatus.DONE:
+                unmet.append(dep)
+        return unmet
 
-        if unmet:
-            descriptions = [f"'{t.description}'" for t in unmet]
-            raise RuntimeError(
-                f"Task '{task.description}' cannot start. "
-                f"{len(unmet)} dependencies unfinished: "
-                + ", ".join(descriptions)
-            )
-
-        if task.status not in [TaskStatus.READY, TaskStatus.PENDING]:
-            raise RuntimeError(
-                f"Task {task.id} '{task.description}' cannot start from status {task.status}"
-            )
-
-        task.status = TaskStatus.IN_PROGRESS
-
-
-    def complete_task(self, task_id, result=None):
-
-        task = self.plan.get_task(task_id)
-        if task.status != TaskStatus.IN_PROGRESS:
-            raise RuntimeError("Task must be IN_PROGRESS to complete")
-
-        task.status = TaskStatus.DONE
-        task.result = result
-        self.completed_tasks.add(task.id)  # Store integer ID, not UUID
-        self._update_ready_tasks()
-
-
-    def _update_ready_tasks(self):
-        """Update the status of tasks based on their dependencies."""
-
+    def _refresh_statuses(self):
+        """Recalculate READY / BLOCKED for all non-terminal, non-active tasks."""
         if self.plan is None:
             return
-
+        completed = {t.id for t in self.plan.tasks if t.status == TaskStatus.DONE}
         for task in self.plan.tasks:
-
-            if task.status in [TaskStatus.DONE, TaskStatus.IN_PROGRESS, TaskStatus.DEPRECATED]:
+            if task.is_terminal or task.status == TaskStatus.IN_PROGRESS:
                 continue
-            if all(dep in self.completed_tasks for dep in task.dependencies):
+            if all(dep_id in completed for dep_id in task.dependencies):
                 task.status = TaskStatus.READY
             else:
                 task.status = TaskStatus.BLOCKED
-
-
-    def is_finished(self):
-        """Check if all tasks in the plan are completed."""
-
-        if self.plan is None:
-            return True
-
-        return all(t.status == TaskStatus.DONE or t.status == TaskStatus.DEPRECATED for t in self.plan.tasks)
-
-    def summary(self, verbose=False):
-        """Return a summary of the current plan and task statuses."""
-
-        if self.plan is None:
-            return "No plan."
-
-        lines = []
-        for t in self.plan.tasks:
-            if verbose:
-                unmet = self.get_unmet_dependencies(t)
-                unmet_desc = ", ".join([f"{d.id}" for d in unmet])
-                if unmet:
-                    lines.append(
-                        f"[{t.status}] {t.description} (depends on: {unmet_desc})"
-                    )
-                else:
-                    lines.append(
-                        f"[{t.status}] {t.description}"
-                    )
-            else:
-                lines.append(
-                    f"[{t.status}] {t.description}"
-                )
-
-        return "\n".join(lines)
     
 
 

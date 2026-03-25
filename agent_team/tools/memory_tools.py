@@ -31,11 +31,11 @@ def _resolve_note_file(file_name: str) -> Path | None:
 
 def _format_task_report(
     task_type: str,
-    success: bool,
-    plan: str | None,
-    errors_summary: str,
-    fix: str,
-    useful_info: str,
+    checked_by_human: bool = False,
+    plan: str | None = None,
+    errors_summary: str | None = None,
+    fix: str | None = None,
+    useful_info: str | None = None,
 ) -> str:
     """Build a consistent markdown report for planner notes."""
     plan_text = plan.strip() if plan and plan.strip() else "N/A"
@@ -43,7 +43,7 @@ def _format_task_report(
     fix_text = fix.strip() if fix and fix.strip() else "None"
     useful_info_text = useful_info.strip() if useful_info and useful_info.strip() else "None"
 
-    status = "SUCCESS" if success else "FAILURE"
+    status = "Human Checked" if checked_by_human else "Not Checked by Human"
     return (
         f"## Task Report: {task_type.strip()}\n"
         f"- Status: {status}\n"
@@ -55,13 +55,13 @@ def _format_task_report(
 
 
 def write_notes(
-    task_type: str,
-    success: bool,
-    plan: str | None,
-    errors_summary: str,
-    fix: str,
-    useful_info: str,
     tool_context: ToolContext,
+    task_type: str,
+    checked_by_human: bool = False,
+    plan: str | None = None,
+    errors_summary: str | None = None,
+    fix: str | None = None,
+    useful_info: str | None = None,
 ) -> dict:
     """Append a structured task report to the current session note file."""
     if not task_type or not task_type.strip():
@@ -71,7 +71,7 @@ def write_notes(
 
     session_id = tool_context.session.id
     note_file = notes_path / f"note_{session_id}.md"
-    note_contents = _format_task_report(task_type, success, plan, errors_summary, fix, useful_info)
+    note_contents = _format_task_report(task_type, checked_by_human, plan, errors_summary, fix, useful_info)
 
     with note_file.open("a", encoding="utf-8") as f:
         f.write(note_contents.rstrip() + "\n")
@@ -82,13 +82,13 @@ def write_notes(
 
 
 def rewrite_notes(
-    task_type: str,
-    success: bool,
-    plan: str | None,
-    errors_summary: str,
-    fix: str,
-    useful_info: str,
     tool_context: ToolContext,
+    task_type: str,
+    checked_by_human: bool = False,
+    plan: str | None = None,
+    errors_summary: str | None = None,
+    fix: str | None = None,
+    useful_info: str | None = None,
 ) -> dict:
     """Rewrite the session note file with one structured task report."""
     if not task_type or not task_type.strip():
@@ -98,7 +98,7 @@ def rewrite_notes(
 
     session_id = tool_context.session.id
     note_file = notes_path / f"note_{session_id}.md"
-    note_contents = _format_task_report(task_type, success, plan, errors_summary, fix, useful_info)
+    note_contents = _format_task_report(task_type, checked_by_human, plan, errors_summary, fix, useful_info)
 
     with note_file.open("w", encoding="utf-8") as f:
         f.write(note_contents.rstrip() + "\n")
@@ -190,7 +190,7 @@ def _delete_marked_notes(tool_context: ToolContext) -> dict:
     }
 
 
-def read_instruction(instruction_file: str, tool_context: ToolContext) -> dict:
+def read_instruction(tool_context: ToolContext, instruction_file: str) -> dict:
     """Read the contents of a specific instruction file."""
     instructions_path.mkdir(parents=True, exist_ok=True)
     candidate = Path(instruction_file.strip())

@@ -19,9 +19,11 @@ import {
   saveStructure,
   undoStructureEdit,
   updateStatusBar,
+  LAYERS_CHANGED_EVENT,
 } from "./structure.js";
 import { updateGizmo, nudgeTransform, isGizmoActive } from "./gizmo.js";
 import { closeAllPanels, toggleAddPanel } from "./panels.js";
+import { toggleSelectionPanel } from "./panels.js";
 
 const TRANSFORM_MODES = new Set(["translate", "rotate", "scale"]);
 
@@ -31,10 +33,14 @@ function onSelectClick(e) {
   const hit = raycastAtoms(e);
   if (!hit) {
     if (!e.shiftKey) {
-      S.selected.clear();
-      updateAtomVisuals();
-      updateGizmo();
-      updateStatusBar();
+      // When selection overlay is hidden, do not clear the selection on empty-clicks
+      if (!(S.selectionLayerHidden && S.selected && S.selected.size > 0)) {
+        S.selected.clear();
+        updateAtomVisuals();
+        updateGizmo();
+        updateStatusBar();
+        document.dispatchEvent(new CustomEvent(LAYERS_CHANGED_EVENT));
+      }
     }
     return;
   }
@@ -42,15 +48,21 @@ function onSelectClick(e) {
   const id = atomIdFromMesh(hit.object);
   if (!isAtomIdInSelectedLayers(id)) {
     if (!e.shiftKey) {
-      S.selected.clear();
-      updateAtomVisuals();
-      updateGizmo();
-      updateStatusBar();
+      if (!(S.selectionLayerHidden && S.selected && S.selected.size > 0)) {
+        S.selected.clear();
+        updateAtomVisuals();
+        updateGizmo();
+        updateStatusBar();
+        document.dispatchEvent(new CustomEvent(LAYERS_CHANGED_EVENT));
+      }
     }
     return;
   }
 
+  // If selection overlay is hidden, treat non-shift clicks as additive
   if (e.shiftKey) {
+    S.selected.add(id);
+  } else if (S.selectionLayerHidden && S.selected && S.selected.size > 0) {
     S.selected.add(id);
   } else {
     S.selected.clear();
@@ -60,6 +72,7 @@ function onSelectClick(e) {
   updateAtomVisuals();
   updateGizmo();
   updateStatusBar();
+  document.dispatchEvent(new CustomEvent(LAYERS_CHANGED_EVENT));
 }
 
 // ── Delete ──────────────────────────────────────────────────────────────────
@@ -133,7 +146,12 @@ function onBoxEnd(e) {
   const x1 = ((Math.max(S.boxStart.x, ex) / rect.width) * 2) - 1;
   const y1 = -((Math.max(S.boxStart.y, ey) / rect.height) * 2) + 1;
 
-  if (!e.shiftKey && !e.ctrlKey) S.selected.clear();
+  if (!e.shiftKey && !e.ctrlKey) {
+    // When selection overlay is hidden, do not clear existing selection on box-select.
+    if (!(S.selectionLayerHidden && S.selected && S.selected.size > 0)) {
+      S.selected.clear();
+    }
+  }
 
   const proj = new THREE.Vector3();
   for (const mesh of S.atomMeshes) {
@@ -152,6 +170,7 @@ function onBoxEnd(e) {
   updateAtomVisuals();
   updateGizmo();
   updateStatusBar();
+  document.dispatchEvent(new CustomEvent(LAYERS_CHANGED_EVENT));
   return true;
 }
 
@@ -322,6 +341,16 @@ export function wireToolbar() {
     });
   });
 
+  // Override box button to open the selection panel instead of immediately switching to box mode
+  const boxBtn = $("#tb-box");
+  if (boxBtn) {
+    boxBtn.addEventListener("click", (e) => {
+      // Prevent default mode toggle
+      e.stopPropagation();
+      toggleSelectionPanel();
+    });
+  }
+
   $("#tb-reset").addEventListener("click", () => {
     closeAllPanels();
     resetCamera();
@@ -397,6 +426,7 @@ export function wireKeyboardShortcuts() {
       updateAtomVisuals();
       updateGizmo();
       updateStatusBar();
+      document.dispatchEvent(new CustomEvent(LAYERS_CHANGED_EVENT));
       return;
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
@@ -410,6 +440,7 @@ export function wireKeyboardShortcuts() {
       updateAtomVisuals();
       updateGizmo();
       updateStatusBar();
+      document.dispatchEvent(new CustomEvent(LAYERS_CHANGED_EVENT));
     }
   });
 }

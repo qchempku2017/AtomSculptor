@@ -2,7 +2,7 @@
  * viewer.js – Three.js scene setup, rendering loop, and camera management.
  */
 
-import { S, ELEM_COLOR, ELEM_RADIUS, BOND_TOLERANCE } from "./state.js";
+import { S, ELEM_COLOR, ELEM_RADIUS, ELEM_VDW, BOND_TOLERANCE, VDW_BOND_FACTOR } from "./state.js";
 import { $ } from "./utils.js";
 
 const MAX_PIXEL_RATIO = 1.5;
@@ -21,6 +21,7 @@ let raycaster = null;
 let rayNdc = null;
 let atomIndexById = new Map();
 let lastSelectedIds = new Set();
+let lastSelectedLayerIds = new Set();
 let lastHoveredId = null;
 let visualsNeedFullRefresh = true;
 
@@ -30,6 +31,11 @@ export function elemColor(sym) {
 
 export function elemRadius(sym) {
   return (ELEM_RADIUS[sym] || ELEM_RADIUS.default) * 0.55;
+}
+
+export function elemVdwRadius(sym) {
+  // Return the van der Waals radius in Å for bonding checks.
+  return (ELEM_VDW[sym] || ELEM_VDW.default);
 }
 
 export function computeCentroid() {
@@ -138,7 +144,8 @@ export function initViewer() {
     const path = event.dataTransfer.getData("application/x-atomsculptor-structure-path")
       || event.dataTransfer.getData("text/plain");
     if (path) {
-      document.dispatchEvent(new CustomEvent("atomsculptor:open-structure", { detail: { path } }));
+      const addToNew = Array.isArray(S.layers) && S.layers.length > 0;
+      document.dispatchEvent(new CustomEvent("atomsculptor:open-structure", { detail: { path, addToNewLayer: addToNew } }));
       return;
     }
 
@@ -172,7 +179,8 @@ export function initViewer() {
     }
 
     if (firstStructurePath) {
-      document.dispatchEvent(new CustomEvent("atomsculptor:open-structure", { detail: { path: firstStructurePath } }));
+      const addToNew = Array.isArray(S.layers) && S.layers.length > 0;
+      document.dispatchEvent(new CustomEvent("atomsculptor:open-structure", { detail: { path: firstStructurePath, addToNewLayer: addToNew } }));
     }
   });
 }
@@ -341,10 +349,12 @@ function buildBonds(c) {
   const cylGeo = new THREE.CylinderGeometry(0.08, 0.08, 1, 8, 1);
   const up = new THREE.Vector3(0, 1, 0);
 
-  // Extract cell vectors
-  const [v0, v1, v2] = S.cell;
+  // Extract cell vectors (fallback to zero vectors for non-box structures)
+  const cellVecs = Array.isArray(S.cell) && S.cell.length === 3 ? S.cell : [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  const [v0, v1, v2] = cellVecs;
 
-  const radii = S.atoms.map(a => ELEM_RADIUS[a.symbol] || ELEM_RADIUS.default);
+  // Use van der Waals radii for bond detection (sum of VDW radii)
+  const radii = S.atoms.map(a => elemVdwRadius(a.symbol));
   const atomColors = S.atoms.map(a => new THREE.Color(elemColor(a.symbol)));
 
   // Determine search ranges for neighboring cells (-1 to 1 for periodic axes)
@@ -380,7 +390,9 @@ function buildBonds(c) {
             const dz = (b.z + offsetZ) - a.z;
 
             const dist2 = dx * dx + dy * dy + dz * dz;
-            const cutoff = (radii[i] + radii[j]) * BOND_TOLERANCE;
+            // Cutoff is the sum of the two atoms' VDW radii scaled by VDW_BOND_FACTOR
+            // (0.6 = 60% per VMD/OVITO convention)
+            const cutoff = (radii[i] + radii[j]) * VDW_BOND_FACTOR;
 
             // dist2 > 0.1 ensures we still ignore overlapping/duplicate atoms
             if (dist2 > 0.1 && dist2 < cutoff * cutoff) {
@@ -402,7 +414,24 @@ function buildBonds(c) {
   }
 
   function addHalfBond(atom, direction, length, color, idxA, idxB) {
-    const mesh = new THREE.Mesh(cylGeo, new THREE.MeshPhongMaterial({color}));
+    const layerA = S.layers.find((l) => l.id === S.atoms[idxA]?.layerId);
+    const layerB = S.layers.find((l) => l.id === S.atoms[idxB]?.layerId);
+    // Hide bonds when either endpoint's layer is hidden
+    if (layerA?.hidden || layerB?.hidden) return;
+    // Hide bonds connected to selected atoms when the selection overlay is hidden
+    if (S.selectionLayerHidden) {
+      const aId = S.atoms[idxA] && S.atoms[idxA].id;
+      const bId = S.atoms[idxB] && S.atoms[idxB].id;
+      if ((aId !== undefined && S.selected.has(aId)) || (bId !== undefined && S.selected.has(bId))) return;
+    }
+    const mat = new THREE.MeshPhongMaterial({ color: color.clone ? color.clone() : color });
+    const mesh = new THREE.Mesh(cylGeo, mat);
+    // Attach endpoint atom ids so we can update bond visibility later without rebuilding
+    mesh.userData = {
+      aId: S.atoms[idxA] && S.atoms[idxA].id,
+      bId: S.atoms[idxB] && S.atoms[idxB].id,
+      baseColor: color && color.clone ? color.clone() : new THREE.Color(color),
+    };
     const pos = new THREE.Vector3(atom.x, atom.y, atom.z)
       .addScaledVector(direction, length / 2)
       .sub(c); // Apply camera/center offset
@@ -412,6 +441,54 @@ function buildBonds(c) {
     mesh.quaternion.setFromUnitVectors(up, direction);
     S.scene.add(mesh);
     S.bondMeshes.push(mesh);
+  }
+}
+
+function updateBondVisuals() {
+  if (!S.bondMeshes || !S.bondMeshes.length) return;
+  for (const mesh of S.bondMeshes) {
+    if (!mesh || !mesh.userData) continue;
+    const aId = mesh.userData.aId;
+    const bId = mesh.userData.bId;
+    const a = S.atoms.find((x) => x.id === aId);
+    const b = S.atoms.find((x) => x.id === bId);
+    const layerA = a && S.layers.find((l) => l.id === a.layerId);
+    const layerB = b && S.layers.find((l) => l.id === b.layerId);
+
+    // Hide if either endpoint's layer is hidden
+    if (layerA?.hidden || layerB?.hidden) {
+      mesh.visible = false;
+      continue;
+    }
+
+    // Hide bonds connected to selected atoms when selection overlay is hidden
+    if (S.selectionLayerHidden && ((aId !== undefined && S.selected.has(aId)) || (bId !== undefined && S.selected.has(bId)))) {
+      mesh.visible = false;
+      continue;
+    }
+
+    mesh.visible = true;
+
+    // Update bond color to reflect layer selection state. Use stored baseColor if available.
+    try {
+      const base = mesh.userData.baseColor || new THREE.Color(0x888888);
+      const inSelectedA = a && S.selectedLayerIds.has(a.layerId);
+      const inSelectedB = b && S.selectedLayerIds.has(b.layerId);
+
+      if (inSelectedA && inSelectedB) {
+        mesh.material.color.copy(base);
+      } else if (inSelectedA || inSelectedB) {
+        // If one endpoint is in the selected layer, blend towards white a bit to emphasize
+        mesh.material.color.copy(base).lerp(new THREE.Color(0xffffff), 0.35);
+      } else {
+        // Grey out bonds when neither endpoint is in the selected layers
+        mesh.material.color.copy(base).lerp(new THREE.Color(0x555555), 0.6);
+      }
+      if (mesh.material.emissive) mesh.material.emissive.set(0x000000);
+    } catch (err) {
+      // swallow any errors - visual update shouldn't break rendering
+      console.error('updateBondVisuals error', err);
+    }
   }
 }
 
@@ -450,6 +527,15 @@ function applyAtomVisualById(id) {
   const mesh = S.atomMeshes[idx];
   if (!mesh) return;
   const atom = S.atoms[idx];
+  const layer = atom && S.layers.find((l) => l.id === atom.layerId);
+  // If the temporary selection overlay is hidden, hide any selected atoms.
+  if (S.selectionLayerHidden && S.selected.has(id)) {
+    mesh.visible = false;
+    return;
+  }
+
+  mesh.visible = !layer?.hidden;
+  if (layer?.hidden) return;
   const inSelectedLayer = Boolean(atom && S.selectedLayerIds.has(atom.layerId));
 
   const base = mesh.userData.baseColor;
@@ -488,7 +574,10 @@ function areSetsEqual(a, b) {
 }
 
 export function updateAtomVisuals(forceFull = false) {
-  if (forceFull || visualsNeedFullRefresh || !areSetsEqual(lastSelectedIds, S.selected)) {
+  const selectionChanged = !areSetsEqual(lastSelectedIds, S.selected);
+  const selectionLayerChanged = !areSetsEqual(lastSelectedLayerIds, S.selectedLayerIds || new Set());
+
+  if (forceFull || visualsNeedFullRefresh || selectionChanged || selectionLayerChanged) {
     if (forceFull || visualsNeedFullRefresh || S.atomMeshes.length <= 300) {
       for (const atom of S.atoms) applyAtomVisualById(atom.id);
     } else {
@@ -505,9 +594,15 @@ export function updateAtomVisuals(forceFull = false) {
   }
 
   lastSelectedIds = new Set(S.selected);
+  lastSelectedLayerIds = new Set(S.selectedLayerIds || []);
   lastHoveredId = S.hovered;
   visualsNeedFullRefresh = false;
   updateAtomInfoPanel();
+
+  // Notify layers UI when selection changes so the temporary selection row updates.
+  if (selectionChanged) document.dispatchEvent(new CustomEvent("atomsculptor:layers-changed"));
+  // Also update bond visuals to reflect selection/visibility changes
+  updateBondVisuals();
 }
 
 function updateAtomInfoPanel() {

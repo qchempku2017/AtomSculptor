@@ -11,6 +11,10 @@ from google.adk.events import Event
 from google.adk.agents.invocation_context import InvocationContext
 from google.genai import types
 
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
+from agent_team.agents.aggregator import aggregator
+
 from agent_team.agents.planner import planner
 
 logger = logging.getLogger(__name__)
@@ -49,9 +53,6 @@ def get_aggregator_status() -> dict:
 
 async def _run_aggregator_bg() -> None:
     """Run the aggregator agent autonomously in the background."""
-    from google.adk.runners import Runner
-    from google.adk.sessions import InMemorySessionService
-    from agent_team.agents.aggregator import aggregator
 
     _set_aggregator_status(
         running=True,
@@ -122,6 +123,7 @@ class Orchestrator(BaseAgent):
         while iteration < max_iterations:
             current_stage = ctx.session.state.get('current_stage', 'planning')
             ctx.session.state['note_written'] = 'false'
+            ctx.session.state['to_human'] = 'false'
             
             if current_stage == 'planning':
                 # Remember the stage before calling planner
@@ -130,6 +132,12 @@ class Orchestrator(BaseAgent):
                 # Planner discusses with human, gets requirements, and sets goals
                 async for event in planner.run_async(ctx):
                     yield event
+                
+                # the last event shall be from the planner
+                if event.author != "planner":
+                    async for event in planner.run_async(ctx):
+                        yield event
+
                 
                 # Check what the planner decided
                 stage_after = ctx.session.state.get('current_stage', 'planning')
@@ -143,13 +151,31 @@ class Orchestrator(BaseAgent):
                 # Default behavior: return to human
                 if stage_before == stage_after:
                     return
+                # if stage_before == stage_after:  
+                #     # Add system message to the conversation history  
+                #     system_event = Event(  
+                #         author="system",      
+                #         invocation_id=ctx.invocation_id,  
+                #         branch=ctx.branch, 
+                #         content=types.Content(  
+                #             role='user',
+                #             parts=[types.Part(text="[SYSTEM INFO] If you want to message the user, directly set `to_human` state to `true` without any other info.")],  
+                #         )  
+                #     )
+                #     yield system_event
+                #     async for event in planner.run_async(ctx):  
+                #         yield event
+                #     to_human = ctx.session.state.get('to_human', 'false')
+                #     if to_human == 'true':
+                #         return
+                    
                 
             elif current_stage == 'modelling':
                 # Planner executes modelling work by calling its sub-agents as needed
                 async for event in planner.run_async(ctx):
                     yield event
                 
-                # After planner's modelling work, check if done or need to continue
+                # After modelling work, check if done or need to continue
                 to_human = ctx.session.state.get('to_human', 'false')
                 if to_human == 'true':
                     note_written = ctx.session.state.get('note_written', 'false')
@@ -158,7 +184,9 @@ class Orchestrator(BaseAgent):
                         system_event = Event(
                             author="system",
                             invocation_id=ctx.invocation_id,
+                            branch=ctx.branch,
                             content=types.Content(
+                                role='user',
                                 parts=[types.Part(text="Do you want to write notes for future agents based on what you learned during this modelling phase?")],
                             )
                         )
