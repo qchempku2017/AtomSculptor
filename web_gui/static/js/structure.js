@@ -574,6 +574,24 @@ export function addAtom(atom, beforeState = null) {
   recordStructureEdit(snapshot);
 }
 
+/** Add multiple atoms in a single undo-able operation. Returns their IDs. */
+export function addAtomsBatch(atoms) {
+  normalizeLayerState();
+  const snapshot = snapshotStructureState();
+  const layerId = getPrimarySelectedAtomLayerId() || getAtomLayers()[0].id;
+  const ids = [];
+  for (const atom of atoms) {
+    const lid = atom.layerId || layerId;
+    S.atoms.push({ ...atom, layerId: lid });
+    ids.push(atom.id);
+  }
+  rebuildScene();
+  updateStatusBar();
+  emitLayersChanged();
+  recordStructureEdit(snapshot);
+  return ids;
+}
+
 export function setSelectedAtomsSymbol(symbol) {
   const nextSymbol = String(symbol || "").trim();
   if (!nextSymbol) return false;

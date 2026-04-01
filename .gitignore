@@ -15,6 +15,7 @@ session.db
 dist/
 build/
 node_modules/
+web_gui/static/ketcher/
 
 # copilot
 .github/

@@ -1,14 +1,15 @@
 /**
- * add-panel.js – Add atom panel with periodic table element picker.
+ * add-panel.js – Add panel with periodic table (atom) and molecule (SMILES / Ketcher) tabs.
  */
 
 import { S } from "./state.js";
 import { $, $$, showError, clearError } from "./utils.js";
 import { elemColor } from "./viewer.js";
-import { addAtom, snapshotStructureState, LAYERS_CHANGED_EVENT } from "./structure.js";
+import { addAtom, addAtomsBatch, snapshotStructureState, LAYERS_CHANGED_EVENT } from "./structure.js";
 import { setMode } from "./editor.js";
 import { closeAllPanels } from "./panel-core.js";
 import { PERIODIC_TABLE_ROWS } from "./elements.js";
+import { updateGizmo } from "./gizmo.js";
 
 /* ── Periodic table helpers ──────────────────────────────────────────────── */
 
@@ -111,12 +112,24 @@ function computeAddDefaultPosition() {
   };
 }
 
+/* ── Tab switching ────────────────────────────────────────────────────────── */
+
+function switchAddTab(tabName) {
+  $$(".add-tab").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.addTab === tabName);
+  });
+  $$(".add-tab-content").forEach((el) => {
+    el.classList.toggle("show", el.id === `add-tab-${tabName}`);
+  });
+}
+
 /* ── Open / toggle / add ─────────────────────────────────────────────────── */
 
 function openAddPanel() {
   closeAllPanels();
   buildAddPalette();
   clearError("#add-error");
+  clearError("#mol-error");
   const pos = computeAddDefaultPosition();
   $("#add-x").value = pos.x.toFixed(3);
   $("#add-y").value = pos.y.toFixed(3);
@@ -161,8 +174,213 @@ function addAtomFromPanel() {
 
 /* ── Wiring ──────────────────────────────────────────────────────────────── */
 
+/* ── Ketcher modal ───────────────────────────────────────────────────────── */
+
+let ketcherReady = false;
+let ketcherLoaded = false;
+let pendingKetcherMolecule = null;
+
+function sendKetcherCommand(message) {
+  const frame = /** @type {HTMLIFrameElement} */ ($("#ketcher-frame"));
+  if (!frame?.contentWindow) return;
+  try {
+    frame.contentWindow.postMessage(message, "*");
+  } catch {
+    // no-op if the frame is not ready yet
+  }
+}
+
+window.addEventListener("message", (event) => {
+  if (!event.data || typeof event.data !== "object") return;
+
+  if (event.data.eventType === "init") {
+    ketcherReady = true;
+    if (pendingKetcherMolecule) {
+      sendKetcherCommand({ eventType: "ketcher-set-molecule", smiles: pendingKetcherMolecule });
+      pendingKetcherMolecule = null;
+    }
+  }
+});
+
+function setKetcherMolecule(smiles) {
+  if (!smiles) return;
+  if (ketcherReady) {
+    sendKetcherCommand({ eventType: "ketcher-set-molecule", smiles });
+  } else {
+    pendingKetcherMolecule = smiles;
+  }
+}
+
+async function requestKetcherSmiles() {
+  const frame = /** @type {HTMLIFrameElement} */ ($("#ketcher-frame"));
+  if (!frame?.contentWindow) return "";
+
+  if (frame.contentWindow.ketcher?.getSmiles) {
+    return frame.contentWindow.ketcher.getSmiles();
+  }
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      window.removeEventListener("message", onMessage);
+      reject(new Error("Timeout waiting for Ketcher SMILES response"));
+    }, 3000);
+
+    function onMessage(event) {
+      if (event.source !== frame.contentWindow) return;
+      if (!event.data || typeof event.data !== "object") return;
+
+      if (event.data.eventType === "ketcher-smiles-response") {
+        clearTimeout(timeout);
+        window.removeEventListener("message", onMessage);
+        resolve(event.data.smiles || "");
+      } else if (event.data.eventType === "ketcher-smiles-error") {
+        clearTimeout(timeout);
+        window.removeEventListener("message", onMessage);
+        reject(new Error(event.data.error || "Ketcher SMILES request failed"));
+      }
+    }
+
+    window.addEventListener("message", onMessage);
+
+    try {
+      frame.contentWindow.postMessage({ eventType: "ketcher-get-smiles" }, "*");
+    } catch (err) {
+      clearTimeout(timeout);
+      window.removeEventListener("message", onMessage);
+      reject(err);
+    }
+  });
+}
+
+function openKetcherModal() {
+  const modal = $("#ketcher-modal");
+  modal.classList.add("show");
+
+  const frame = /** @type {HTMLIFrameElement} */ ($("#ketcher-frame"));
+
+  // Lazy-load the Ketcher editor on first open
+  if (!ketcherLoaded) {
+    ketcherLoaded = true;
+    frame.src = "/static/ketcher/index.html";
+  }
+
+  const existing = $("#mol-smiles").value.trim();
+  if (existing) {
+    setKetcherMolecule(existing);
+  }
+}
+
+function closeKetcherModal() {
+  $("#ketcher-modal").classList.remove("show");
+}
+
+function adjustMolSmilesInput() {
+  const field = $("#mol-smiles");
+  if (!field) return;
+
+  field.style.height = "auto";
+  field.style.height = `${Math.min(180, field.scrollHeight)}px`;
+
+  const length = field.value.length;
+  const widthPercent = Math.min(100, Math.max(40, Math.ceil(length / 3)));
+  field.style.width = `${widthPercent}%`;
+}
+
+async function ketcherAddMolecule() {
+  try {
+    const smiles = await requestKetcherSmiles();
+    if (smiles) {
+      $("#mol-smiles").value = smiles;
+      adjustMolSmilesInput();
+    }
+  } catch (err) {
+    console.warn("Could not get SMILES from Ketcher:", err);
+  }
+
+  closeKetcherModal();
+
+  // Immediately add drawn molecule to viewport without extra manual Add Molecule click
+  await addMoleculeFromPanel();
+}
+
+/* ── Add molecule ────────────────────────────────────────────────────────── */
+
+async function addMoleculeFromPanel() {
+  const smiles = $("#mol-smiles").value.trim();
+  if (!smiles) {
+    showError("#mol-error", "Enter a SMILES string or draw a molecule.");
+    return;
+  }
+  clearError("#mol-error");
+
+  const btn = $("#mol-add");
+  btn.disabled = true;
+  btn.textContent = "Adding…";
+
+  try {
+    const resp = await fetch("/api/structure/add-molecule", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ smiles }),
+    });
+    const data = await resp.json();
+
+    if (data.error) {
+      showError("#mol-error", data.error);
+      return;
+    }
+
+    const offset = computeAddDefaultPosition();
+    let nextId = S.atoms.length ? Math.max(...S.atoms.map((a) => a.id)) + 1 : 0;
+
+    const newAtoms = data.atoms.map((a) => ({
+      id: nextId++,
+      symbol: a.symbol,
+      x: a.x + offset.x,
+      y: a.y + offset.y,
+      z: a.z + offset.z,
+    }));
+
+    const ids = addAtomsBatch(newAtoms);
+    S.selected = new Set(ids);
+    S.hovered = null;
+    document.dispatchEvent(new CustomEvent(LAYERS_CHANGED_EVENT));
+    clearError("#mol-error");
+    updateGizmo();
+    setMode("translate");
+
+    // Clear SMILES after successful add to avoid leftover text.
+    $("#mol-smiles").value = "";
+    adjustMolSmilesInput();
+  } catch (e) {
+    showError("#mol-error", `Request failed: ${e}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Add Molecule";
+  }
+}
+
+/* ── Wire everything ─────────────────────────────────────────────────────── */
+
 export function wireAddPanel() {
   $("#tb-add").addEventListener("click", toggleAddPanel);
+
+  // Tab switching
+  $$(".add-tab").forEach((btn) => {
+    btn.addEventListener("click", () => switchAddTab(btn.dataset.addTab));
+  });
+
+  // Atom tab
   $("#add-cancel").addEventListener("click", () => closeAllPanels());
   $("#add-build").addEventListener("click", addAtomFromPanel);
+
+  // Molecule tab
+  $("#mol-draw-btn").addEventListener("click", openKetcherModal);
+  $("#mol-add").addEventListener("click", addMoleculeFromPanel);
+  $("#mol-smiles").addEventListener("input", adjustMolSmilesInput);
+  $("#mol-cancel").addEventListener("click", () => closeAllPanels());
+
+  // Ketcher modal
+  $("#ketcher-add").addEventListener("click", ketcherAddMolecule);
+  $("#ketcher-cancel").addEventListener("click", closeKetcherModal);
 }

@@ -4,6 +4,7 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>AtomSculptor</title>
+<link rel="icon" href="/static/ketcher/favicon.ico" />
 <link rel="stylesheet" href="__INDEX_CSS__"/>
 
 <script src="/static/node_modules/cytoscape/dist/cytoscape.min.js"></script>
@@ -123,22 +124,59 @@
           <div id="viewer-empty">Click a structure file<br/>(.cif .xyz .vasp .pdb or POSCAR/CONTCAR) to view</div>
           <div id="box-select-overlay"></div>
 
-          <!-- Add atom panel -->
+          <!-- Add atom / molecule panel -->
           <div id="add-panel" class="tool-panel">
-            <div class="tool-panel-title">Add Atom</div>
-            <label class="tool-panel-label">Periodic Table</label>
-            <div id="add-periodic-table" class="periodic-table"></div>
-            <label class="tool-panel-label">Coordinates (Å)</label>
-            <div class="tool-panel-row">
-              <input id="add-x" type="number" value="0" step="0.01" class="tool-panel-input tool-panel-input-sm"/>
-              <input id="add-y" type="number" value="0" step="0.01" class="tool-panel-input tool-panel-input-sm"/>
-              <input id="add-z" type="number" value="0" step="0.01" class="tool-panel-input tool-panel-input-sm"/>
+            <div class="tool-panel-title">Add</div>
+            <div class="add-tabs">
+              <button class="add-tab active" data-add-tab="atom">Atom</button>
+              <button class="add-tab" data-add-tab="molecule">Molecule</button>
             </div>
-            <div class="tool-panel-actions">
-              <button id="add-build" class="tool-panel-btn primary">Add</button>
-              <button id="add-cancel" class="tool-panel-btn">Cancel</button>
+
+            <!-- Atom tab -->
+            <div id="add-tab-atom" class="add-tab-content show">
+              <label class="tool-panel-label">Periodic Table</label>
+              <div id="add-periodic-table" class="periodic-table"></div>
+              <label class="tool-panel-label">Coordinates (Å)</label>
+              <div class="tool-panel-row">
+                <input id="add-x" type="number" value="0" step="0.01" class="tool-panel-input tool-panel-input-sm"/>
+                <input id="add-y" type="number" value="0" step="0.01" class="tool-panel-input tool-panel-input-sm"/>
+                <input id="add-z" type="number" value="0" step="0.01" class="tool-panel-input tool-panel-input-sm"/>
+              </div>
+              <div class="tool-panel-actions">
+                <button id="add-build" class="tool-panel-btn primary">Add</button>
+                <button id="add-cancel" class="tool-panel-btn">Cancel</button>
+              </div>
+              <div id="add-error" class="tool-panel-error"></div>
             </div>
-            <div id="add-error" class="tool-panel-error"></div>
+
+            <!-- Molecule tab -->
+            <div id="add-tab-molecule" class="add-tab-content">
+              <label class="tool-panel-label" for="mol-smiles">SMILES input (paste or generated from drawing)</label>
+              <div class="mol-smiles-row">
+                <textarea id="mol-smiles" placeholder="e.g. CCO, c1ccccc1, CC(=O)O" class="tool-panel-input mol-smiles-input" rows="2"></textarea>
+              </div>
+              <label class="tool-panel-label">Draw molecule (opens Ketcher)</label>
+              <div class="mol-draw-row">
+                <button id="mol-draw-btn" class="tool-panel-btn" title="Draw molecule in editor">Draw</button>
+              </div>
+              <div class="tool-panel-actions">
+                <button id="mol-add" class="tool-panel-btn primary">Add Molecule</button>
+                <button id="mol-cancel" class="tool-panel-btn">Cancel</button>
+              </div>
+              <div id="mol-error" class="tool-panel-error"></div>
+            </div>
+          </div>
+
+          <!-- Ketcher editor modal -->
+          <div id="ketcher-modal" class="ketcher-modal">
+            <div class="ketcher-modal-bar">
+              <span class="ketcher-modal-title">Molecule Editor</span>
+              <div class="ketcher-modal-actions">
+                <button id="ketcher-add" class="tool-panel-btn primary">Add Molecule</button>
+                <button id="ketcher-cancel" class="tool-panel-btn">Cancel</button>
+              </div>
+            </div>
+            <iframe id="ketcher-frame" sandbox="allow-scripts allow-same-origin"></iframe>
           </div>
 
           <!-- Surface builder panel -->

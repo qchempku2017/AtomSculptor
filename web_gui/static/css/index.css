@@ -955,6 +955,93 @@ body.col-dragging { cursor: col-resize !important; user-select: none; }
 #add-panel {
   max-width: 420px;
 }
+
+/* ── Add panel tabs ─────────────────────────────────────────────────────── */
+.add-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.add-tab {
+  flex: 1;
+  padding: 5px 0;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--mono);
+  background: var(--bg1);
+  color: var(--text-dim);
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.add-tab:not(:last-child) { border-right: 1px solid var(--border); }
+.add-tab:hover { background: var(--bg-hover); color: var(--text); }
+.add-tab.active { background: var(--accent); color: #fff; }
+
+.add-tab-content { display: none; }
+.add-tab-content.show { display: block; }
+
+/* ── Molecule tab ───────────────────────────────────────────────────────── */
+.mol-smiles-row,
+.mol-draw-row {
+  display: flex;
+  width: 100%;
+  gap: 4px;
+  align-items: stretch;
+  margin-bottom: 6px;
+}
+
+.mol-smiles-row .tool-panel-input,
+.mol-draw-row .tool-panel-btn {
+  flex: 1;
+}
+
+.mol-smiles-input {
+  min-height: 40px;
+  max-height: 180px;
+  resize: none;
+  overflow: hidden;
+  width: 100%;
+  box-sizing: border-box;
+  transition: width 0.2s ease;
+}
+
+#mol-draw-btn { white-space: nowrap; }
+
+/* ── Ketcher modal ──────────────────────────────────────────────────────── */
+.ketcher-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0,0,0,.6);
+  flex-direction: column;
+}
+.ketcher-modal.show { display: flex; }
+.ketcher-modal-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.ketcher-modal-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.ketcher-modal-actions { display: flex; gap: 6px; }
+#ketcher-frame {
+  flex: 1;
+  border: none;
+  width: 100%;
+}
+
 .periodic-table {
   display: flex;
   flex-direction: column;

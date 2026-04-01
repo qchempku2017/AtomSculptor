@@ -285,6 +285,54 @@ async def api_structure_build_supercell(request):
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
+async def api_structure_add_molecule(request):
+    """POST /api/structure/add-molecule — convert SMILES to 3D atom positions."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+
+    smiles = str(body.get("smiles", "")).strip()
+    if not smiles:
+        return JSONResponse({"error": "SMILES string required"}, status_code=400)
+
+    try:
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        mol = Chem.MolFromSmiles(smiles)
+        if mol is None:
+            return JSONResponse({"error": "Invalid SMILES string"}, status_code=400)
+
+        mol = Chem.AddHs(mol)
+        result = AllChem.EmbedMolecule(mol, AllChem.ETKDG())
+        if result != 0:
+            return JSONResponse({"error": "Could not generate 3D coordinates"}, status_code=400)
+
+        AllChem.MMFFOptimizeMolecule(mol)
+
+        conf = mol.GetConformer()
+        atoms = []
+        for i in range(mol.GetNumAtoms()):
+            atom = mol.GetAtomWithIdx(i)
+            pos = conf.GetAtomPosition(i)
+            atoms.append({
+                "symbol": atom.GetSymbol(),
+                "x": round(pos.x, 4),
+                "y": round(pos.y, 4),
+                "z": round(pos.z, 4),
+            })
+
+        return JSONResponse({
+            "atoms": atoms,
+            "smiles": Chem.MolToSmiles(Chem.RemoveHs(mol)),
+        })
+    except ImportError:
+        return JSONResponse({"error": "RDKit is not installed"}, status_code=500)
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
 async def api_file_delete(request):
     try:
         body = await request.json()
