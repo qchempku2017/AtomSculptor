@@ -1046,13 +1046,14 @@ body.col-dragging { cursor: col-resize !important; user-select: none; }
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
-  max-height: 240px;
+  gap: 2px;
+  max-height: 260px;
   overflow: auto;
-  padding: 2px;
+  padding: 4px;
   border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg1);
+  border-radius: 8px;
+  background: var(--bg2);
+  box-shadow: none;
 }
 .pt-row {
   display: grid;
@@ -1060,36 +1061,46 @@ body.col-dragging { cursor: col-resize !important; user-select: none; }
   gap: 3px;
 }
 .pt-row-series {
-  display: flex;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: repeat(18, 18px);
   gap: 3px;
   width: 100%;
+  border-top: 1px dashed rgba(0,0,0,.12);
 }
 .pt-row-series-start {
-  margin-top: 6px;
+  margin-top: 5px; /* gap between main table and La */
+  padding-top: 6px;
+}
+.pt-row-series:not(.pt-row-series-start) {
+  margin-top: 0px; /* gap between La and Ac */
+  padding-top: 0px;
 }
 .pt-spacer {
   width: 18px;
   height: 18px;
 }
 .pt-elem-btn {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border: 1px solid var(--border);
-  border-radius: 3px;
-  background: var(--bg3);
+  border-radius: 4px;
+  background: linear-gradient(180deg, var(--bg3), var(--bg2));
   color: var(--text);
-  font-size: 9px;
+  font-size: 10px;
   line-height: 1;
+  font-weight: 600;
   cursor: pointer;
   font-family: var(--mono);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.15s ease;
 }
 .pt-elem-btn:hover {
-  background: var(--bg-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  background: linear-gradient(180deg, var(--bg2), var(--bg3));
 }
 .pt-elem-btn.selected {
   background: var(--accent);

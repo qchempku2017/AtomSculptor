@@ -8,18 +8,10 @@ import { elemColor } from "./viewer.js";
 import { addAtom, addAtomsBatch, snapshotStructureState, LAYERS_CHANGED_EVENT } from "./structure.js";
 import { setMode } from "./editor.js";
 import { closeAllPanels } from "./panel-core.js";
-import { PERIODIC_TABLE_ROWS } from "./elements.js";
+import { PERIODIC_TABLE_ROWS, buildPeriodicRow } from "./elements.js";
 import { updateGizmo } from "./gizmo.js";
 
 /* ── Periodic table helpers ──────────────────────────────────────────────── */
-
-function buildPeriodicRow(entries) {
-  const row = Array(18).fill(null);
-  for (const [columnIndex, elementSymbol] of entries) {
-    row[columnIndex - 1] = elementSymbol;
-  }
-  return row;
-}
 
 function setSelectedAddElement(elementSymbol) {
   S.addElement = elementSymbol;
@@ -53,13 +45,17 @@ function buildAddPalette() {
       rowElement.classList.add("pt-row-series");
       if (rowIndex === 7) rowElement.classList.add("pt-row-series-start");
 
-      const seriesElements = [...rowEntries]
-        .sort((left, right) => left[0] - right[0])
-        .map((entry) => entry[1]);
-
-      for (const elementSymbol of seriesElements) {
+      const row = buildPeriodicRow(rowEntries);
+      for (const elementSymbol of row) {
+        if (!elementSymbol) {
+          const spacer = document.createElement("div");
+          spacer.className = "pt-spacer";
+          rowElement.appendChild(spacer);
+          continue;
+        }
         rowElement.appendChild(createElementButton(elementSymbol));
       }
+
       table.appendChild(rowElement);
       continue;
     }
