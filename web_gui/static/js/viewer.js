@@ -607,18 +607,48 @@ export function updateAtomVisuals(forceFull = false) {
 
 function updateAtomInfoPanel() {
   const info = $("#atom-info");
+  const changeButton = $("#ai-change-element");
+  const symbolPicker = $("#ai-symbol-picker");
   if (S.selected.size === 0 && S.hovered === null) {
+    if (symbolPicker) symbolPicker.style.display = "none";
     info.style.display = "none";
     return;
   }
 
   info.style.display = "block";
+  if (changeButton) {
+    changeButton.style.display = S.selected.size > 0 ? "block" : "none";
+  }
+  if (S.selected.size === 0 && symbolPicker) {
+    symbolPicker.style.display = "none";
+  }
   if (S.selected.size > 1) {
+    let sx = 0;
+    let sy = 0;
+    let sz = 0;
+    let count = 0;
+    for (const id of S.selected) {
+      const idx = atomIndexById.get(id);
+      if (idx === undefined) continue;
+      const atom = S.atoms[idx];
+      if (!atom) continue;
+      sx += atom.x;
+      sy += atom.y;
+      sz += atom.z;
+      count += 1;
+    }
+
     $("#ai-title").textContent = "Selection";
     $("#ai-sym").textContent = "-";
-    $("#ai-x").textContent = "-";
-    $("#ai-y").textContent = "-";
-    $("#ai-z").textContent = "-";
+    if (count > 0) {
+      $("#ai-x").textContent = `${(sx / count).toFixed(4)} Å`;
+      $("#ai-y").textContent = `${(sy / count).toFixed(4)} Å`;
+      $("#ai-z").textContent = `${(sz / count).toFixed(4)} Å`;
+    } else {
+      $("#ai-x").textContent = "-";
+      $("#ai-y").textContent = "-";
+      $("#ai-z").textContent = "-";
+    }
     $("#ai-count").style.display = "block";
     $("#ai-count").textContent = `${S.selected.size} atoms selected`;
     return;

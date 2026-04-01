@@ -23,8 +23,35 @@ from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .helpers import STATIC_DIR
+
+
+class NoCacheJSMiddleware:
+    """Force revalidation for all /static/js/ responses so stale module
+    caches never cause 'export not found' errors in the browser."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and scope.get("path", "").startswith("/static/js/"):
+            async def send_with_no_cache(message):
+                if message["type"] == "http.response.start":
+                    headers = list(message.get("headers", []))
+                    headers = [
+                        (k, v) for k, v in headers
+                        if k.lower() not in (b"cache-control", b"expires", b"pragma")
+                    ]
+                    headers.append((b"cache-control", b"no-cache"))
+                    message = {**message, "headers": headers}
+                await send(message)
+            await self.app(scope, receive, send_with_no_cache)
+        else:
+            await self.app(scope, receive, send)
+
+
 from .routes import (
     index,
     api_todo_flow,
@@ -79,6 +106,7 @@ app = Starlette(
             allow_methods=["*"],
             allow_headers=["*"],
         ),
+        Middleware(NoCacheJSMiddleware),
     ],
 )
 

@@ -4,70 +4,65 @@ Materials-science agent workspace using Google ADK + Anthropic Sandbox Runtime (
 
 ## Requirements
 
-- Linux or WSL2 (current project environment)
+- Linux or WSL2
 - Python 3.12+
-- Node.js + npm
-- `srt` Linux dependencies:
-  - `bubblewrap`
-  - `socat`
-  - `ripgrep`
+- Node.js 18+ / npm
+- System packages (Ubuntu/Debian):
+  ```bash
+  sudo apt-get install -y bubblewrap socat ripgrep
+  ```
 
-Ubuntu/Debian example:
+---
+
+## Quick Install
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y bubblewrap socat ripgrep
+git clone <repo-url> && cd AtomSculptor
+./install.sh
+```
+
+This creates a `.venv`, installs Python + npm dependencies, and sets up `.env`.
+
+Flags:
+| Flag | Effect |
+|------|--------|
+| `--all` | Install all extras (web + dev + treesitter-full) |
+| `--dev` | Include development tools (ruff, mypy, pytest, …) |
+| `--no-venv` | Skip venv creation; use current environment |
+
+---
+
+## Manual Install
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+
+# Core + web GUI (recommended)
+pip install -e ".[web]"
+
+# Optional extras (combine as needed)
+pip install -e ".[dev]"               # ruff, mypy, pytest
+pip install -e ".[treesitter-full]"   # JS/TS/Rust/Go/Scala/Java/C++ parsers
+
+# Frontend
+cd web_gui/static && npm ci && cd -
+
+# Environment
+cp .env.example .env   # then edit with your API keys
 ```
 
 ---
 
-## 1) Create Python environment
+## Configuration
 
-```bash
-cd AtomSculptor
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
-```
-
-Optional extras
-
-- `pip install -e ".[web]"` for web UI runtime (`uvicorn`, `starlette`). **Recommended!**
-- `pip install -e ".[dev]"` for development tooling (`ruff`, `mypy`, `pre-commit`, `pytest`, `pytest-asyncio`).
-- `pip install -e ".[treesitter-full]"` for full Tree-sitter language support (JavaScript/TypeScript/Rust/Go/Scala/Java/C++). Used for code graph RAG.
-
-If you use a different model backend, also install any provider SDK required by your LiteLLM model setup.
-
----
-
-## 2) Install sandbox runtime CLI (`srt`)
-
-Node.js 18+ is required for some frontend dependencies (e.g. `marked`).
-
-```bash
-# Install the sandbox runtime CLI globally
-npm install -g @anthropic-ai/sandbox-runtime
-srt --help
-
-# Install web GUI frontend dependencies (from the repository root)
-# This uses the lockfile to ensure reproducible installs.
-cd web_gui/static
-npm ci
-cd -
-```
-
----
-
-## 3) Configure project
-
-Edit `config.yaml`:
+Edit `config.yaml` to set model backends and sandbox paths:
 
 ```yaml
 PLANNER_MODEL: "openai/qwen3-max"
 SANDBOX_DIR: "sandbox/.runtime"
 ```
 
-Set your provider credentials following `.env` (`cp` one from `.env.example`) or your environment variables:
+Set credentials in `.env`:
 
 ```bash
 OPENAI_API_KEY="<your_key>"
@@ -77,21 +72,17 @@ MP_API_KEY="<your_mp_api>"
 
 ---
 
-## 4) Run the agent
-
-We support GUI and CLI modes.
-
-From repo root:
-
-For GUI mode, run:
+## Run
 
 ```bash
+source .venv/bin/activate
+
+# Web GUI (recommended)
 python main.py --web
-```
 
-For CLI mode, run:
-
-```bash
+# ADK CLI
+python main.py
+# or equivalently:
 adk run agent_team
 ```
 
@@ -99,30 +90,18 @@ adk run agent_team
 
 ## Code-Graph-RAG Integration
 
-AtomSculptor now includes integrated code analysis capabilities using code-graph-rag.
+Optional code analysis powered by Memgraph. Requires Docker.
 
-If using, you need to create a folder that contains the codes like pymatgen, ase, rdkit, etc. and set the path in `TARGET_REPO_PATH` in `config.yaml`. The code analyzer agent will use this path to analyze the code and build the code graph in Memgraph.
+```bash
+# Start Memgraph
+docker compose up -d
 
-### Quick Setup
+# Or manually:
+docker run -d --name memgraph -p 7687:7687 memgraph/memgraph-platform
+```
 
-1. **Install with all dependencies**:
-   ```bash
-   ./install.sh
-   ```
-   Or manually:
-   ```bash
-   pip install -e .
-   pip install -e ".[treesitter-full]"  # Optional: full language support
-   ```
+Set `TARGET_REPO_PATH` in `config.yaml` to point at the codebase to analyze (e.g. pymatgen, ase, rdkit sources). Install full tree-sitter support for multi-language parsing:
 
-  Note: `./install.sh` supports non-interactive/CI mode. Set `CI=true` or `NONINTERACTIVE=true` to skip prompts.
-
-2. **Start Memgraph** (required for code analysis):
-  ```bash
-  docker pull memgraph/memgraph-platform
-  ```
-
-  Run the container as you prefer. Example:
-  ```bash
-  docker run -d --name memgraph -p 7687:7687 memgraph/memgraph-platform
-  ```
+```bash
+pip install -e ".[treesitter-full]"
+```

@@ -59,29 +59,34 @@ def create_plan(
         }
 
     # create Task lists
-    task_objects = []
-    for i, desc in enumerate(tasks):
-        task_id = i + 1  # Task IDs start from 1
-        if dependencies:
-            deps = dependencies.get(task_id, [])
-        else:
-            # Default sequential dependency: task n depends on task n-1
-            deps = [task_id - 1] if task_id > 1 else []
-        skills = skills_required.get(task_id, []) if skills_required else []
-        instructions = instructions_required.get(task_id, []) if instructions_required else []
-        task_objects.append(Task(description=desc, id=task_id, dependencies=deps, skills_required=skills, instructions_required=instructions))
+    try:
+        task_objects = []
+        for i, desc in enumerate(tasks):
+            task_id = i + 1  # Task IDs start from 1
+            if dependencies:
+                deps = dependencies.get(task_id, [])
+            else:
+                # Default sequential dependency: task n depends on task n-1
+                deps = [task_id - 1] if task_id > 1 else []
+            skills = skills_required.get(task_id, []) if skills_required else []
+            instructions = instructions_required.get(task_id, []) if instructions_required else []
+            task_objects.append(Task(description=desc, id=task_id, dependencies=deps, skills_required=skills, instructions_required=instructions))
 
-    plan = Plan(task_objects)
-    ctx = get_context()
-    ctx.todo_flow.set_plan(plan)
+        plan = Plan(task_objects)
+        ctx = get_context()
+        ctx.todo_flow.set_plan(plan)
 
-    tool_context.state["current_stage"] = "modelling"
+        tool_context.state["current_stage"] = "modelling"
 
-    return {
-        "status": "success",
-        "plan": ctx.todo_flow.summary(verbose=True),
-        "message": "Plan created and current stage set to `modelling`."
-    }
+        return {
+            "status": "success",
+            "plan": ctx.todo_flow.summary(verbose=True),
+            "message": "Plan created and current stage set to `modelling`."
+        }
+    except Exception as e:
+        return {
+            "error": str(e)
+        }
 
 def revise_plan(
     add_tasks: List[str], 

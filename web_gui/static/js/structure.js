@@ -574,6 +574,28 @@ export function addAtom(atom, beforeState = null) {
   recordStructureEdit(snapshot);
 }
 
+export function setSelectedAtomsSymbol(symbol) {
+  const nextSymbol = String(symbol || "").trim();
+  if (!nextSymbol) return false;
+  if (!S.selected || S.selected.size === 0) return false;
+
+  const snapshot = snapshotStructureState();
+  let changed = false;
+  for (const atom of S.atoms) {
+    if (!S.selected.has(atom.id)) continue;
+    if (atom.symbol === nextSymbol) continue;
+    atom.symbol = nextSymbol;
+    changed = true;
+  }
+
+  if (!changed) return false;
+  rebuildScene();
+  updateStatusBar();
+  emitLayersChanged();
+  recordStructureEdit(snapshot);
+  return true;
+}
+
 export function applyLattice(realMatrix, scaleAtoms) {
   const beforeState = snapshotStructureState();
   const currentCell = Array.isArray(S.cell) && S.cell.length === 3 ? S.cell : [[1, 0, 0], [0, 1, 0], [0, 0, 1]];

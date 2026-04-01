@@ -6,7 +6,7 @@ import traceback
 from google.genai import types
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from agent_team.agents.atom_sculptor import get_aggregator_status
+from agent_team.aggregator_runner import get_status as get_aggregator_status
 
 from .agent_session import runner, session_service, event_to_messages
 from .filesystem import sandbox_root, build_file_tree

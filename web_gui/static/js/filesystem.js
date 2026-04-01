@@ -14,6 +14,7 @@ const __fileRowsByPath = new Map();
 let __fileClipboard = [];
 let __marqueeState = null;
 let __fileHotkeysBound = false;
+let __fileHotkeysMuted = false;
 
 const PROTECTED_PATH_PARTS = new Set(["toolbox", "instructions"]);
 
@@ -86,6 +87,31 @@ function isTypingTarget(el) {
   const tag = (el.tagName || "").toLowerCase();
   return tag === "input" || tag === "textarea" || el.isContentEditable;
 }
+
+function isFilePanelTarget(el) {
+  return Boolean(el && el.closest("#file-tree, #file-empty, #file-context-menu"));
+}
+
+function isViewportTarget(el) {
+  return Boolean(el && el.closest("#viewer-wrap, #struct-canvas, #panel-struct"));
+}
+
+function initFileHotkeyMuteGuard() {
+  if (document.body && document.body.dataset.fileHotkeyMuteGuardBound === "true") return;
+  if (document.body) document.body.dataset.fileHotkeyMuteGuardBound = "true";
+
+  document.addEventListener("pointerdown", (event) => {
+    if (isViewportTarget(event.target)) {
+      __fileHotkeysMuted = true;
+      return;
+    }
+    if (isFilePanelTarget(event.target)) {
+      __fileHotkeysMuted = false;
+    }
+  }, true);
+}
+
+initFileHotkeyMuteGuard();
 
 async function performPaste(targetDir) {
   if (!__fileClipboard.length) return;
@@ -271,6 +297,7 @@ function initFileKeyboardShortcuts() {
 
   document.addEventListener("keydown", async (event) => {
     if (isTypingTarget(event.target)) return;
+    if (__fileHotkeysMuted) return;
 
     const selection = currentSelection();
     const hasSelection = selection.length > 0;
