@@ -359,6 +359,9 @@ function updateContextMenuState(menu) {
   const protectedSelection = selected.some((p) => isProtectedPath(p));
   const targetDir = normalizePath(menu.dataset.pasteTarget || "");
   const canPaste = __fileClipboard.length > 0 && !isProtectedPath(targetDir);
+  const singlePath = selected.length === 1 ? selected[0] : "";
+  const singleRow = singlePath ? __fileRowsByPath.get(singlePath) : null;
+  const canOpen = Boolean(singleRow && singleRow.dataset.type === "file");
 
   for (const item of menu.querySelectorAll(".context-menu-item")) {
     item.classList.remove("disabled");
@@ -369,7 +372,7 @@ function updateContextMenuState(menu) {
   const pasteItem = menu.querySelector(".context-menu-item[data-action='paste']");
   const deleteItem = menu.querySelector(".context-menu-item[data-action='delete']");
 
-  if (openItem && selected.length !== 1) openItem.classList.add("disabled");
+  if (openItem && !canOpen) openItem.classList.add("disabled");
   if (copyItem && (selected.length === 0 || protectedSelection)) copyItem.classList.add("disabled");
   if (pasteItem && !canPaste) pasteItem.classList.add("disabled");
   if (deleteItem && (selected.length === 0 || protectedSelection)) deleteItem.classList.add("disabled");
@@ -397,13 +400,15 @@ function createContextMenu() {
 
     const selected = parsePaths(menu.dataset.paths);
     const path = selected[0] || menu.dataset.path;
-    const isStruct = menu.dataset.isStructure === "true";
+    const row = path ? __fileRowsByPath.get(path) : null;
+    const isFile = Boolean(row && row.dataset.type === "file");
+    const isStruct = Boolean(row && row.dataset.isStructure === "true");
     const pasteTarget = normalizePath(menu.dataset.pasteTarget || "");
 
     hideContextMenu();
     try {
       if (action === "open") {
-        if (selected.length !== 1) return;
+        if (selected.length !== 1 || !isFile) return;
         if (isStruct) {
           loadStructure(path);
         } else {
@@ -456,58 +461,87 @@ function fileIcon(item) {
   return "📄";
 }
 
-function buildTree(items, container, level) {
+function buildTree(items, container, level, basePath = "") {
   for (const item of items) {
+    const fallbackPath = basePath ? `${basePath}/${item.name}` : item.name;
+    const itemPath = normalizePath(item.path || fallbackPath);
     if (item.type === "directory") {
       const row = document.createElement("div");
       row.className = "tree-item";
+      row.dataset.type = "directory";
+      row.dataset.path = itemPath;
       row.style.paddingLeft = `${(level * 14) + 6}px`;
       row.innerHTML = `<span class='tree-toggle'>▶</span><span class='tree-icon'>📁</span><span class='tree-name'>${esc(item.name)}</span>`;
       container.appendChild(row);
+      if (itemPath) __fileRowsByPath.set(itemPath, row);
+      if (isProtectedPath(itemPath)) row.classList.add("is-protected");
 
       const kids = document.createElement("div");
       kids.className = "tree-children";
-      buildTree(item.children || [], kids, level + 1);
+      buildTree(item.children || [], kids, level + 1, itemPath);
       container.appendChild(kids);
 
-      row.addEventListener("click", () => {
+      row.addEventListener("click", (event) => {
+        if (!itemPath) return;
+        if (event.metaKey || event.ctrlKey) toggleSelection(itemPath);
+        else selectSingle(itemPath);
+        if (event.metaKey || event.ctrlKey || event.shiftKey) return;
         const open = kids.classList.toggle("open");
         row.querySelector(".tree-toggle").classList.toggle("open", open);
         row.querySelector(".tree-icon").textContent = open ? "📂" : "📁";
       });
+
+      row.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        if (itemPath && !__selectedFilePaths.has(itemPath)) {
+          selectSingle(itemPath);
+        }
+        const menu = createContextMenu();
+        menu.dataset.path = itemPath;
+        menu.dataset.isStructure = "false";
+        menu.dataset.paths = JSON.stringify(currentSelection());
+        menu.dataset.pasteTarget = itemPath;
+        updateContextMenuState(menu);
+        const x = Math.min(window.innerWidth - 160, event.pageX);
+        const y = Math.min(window.innerHeight - 160, event.pageY);
+        menu.style.left = `${x}px`;
+        menu.style.top = `${y}px`;
+        menu.style.display = "block";
+      });
     } else {
       const row = document.createElement("div");
       row.className = "tree-item";
-      row.dataset.path = item.path || "";
+      row.dataset.path = itemPath;
       row.dataset.type = "file";
       row.style.paddingLeft = `${(level * 14) + 20}px`;
       const icon = fileIcon(item);
       row.innerHTML = `<span class='tree-icon'>${icon}</span><span class='tree-name'>${esc(item.name)}</span>`
         + `<span class='tree-size'>${fmtSize(item.size)}</span>`;
-      if (item.path) __fileRowsByPath.set(item.path, row);
-      if (isProtectedPath(item.path || "")) row.classList.add("is-protected");
+      row.dataset.isStructure = String(isStructureItem(item));
+      if (itemPath) __fileRowsByPath.set(itemPath, row);
+      if (isProtectedPath(itemPath)) row.classList.add("is-protected");
 
       row.addEventListener("click", (event) => {
-        if (!item.path) return;
-        if (event.metaKey || event.ctrlKey) toggleSelection(item.path);
-        else selectSingle(item.path);
+        if (!itemPath) return;
+        if (event.metaKey || event.ctrlKey) toggleSelection(itemPath);
+        else selectSingle(itemPath);
       });
 
       if (isStructureItem(item)) {
-        const canDrag = Boolean(item && item.path);
+        const canDrag = Boolean(itemPath);
         if (canDrag) {
           row.classList.add("is-draggable");
           row.draggable = true;
           row.title = "Double-click to open in viewport. Drag to add into layers. Shift+drag to box-select files.";
-          row.addEventListener("dblclick", () => loadStructure(item.path));
+          row.addEventListener("dblclick", () => loadStructure(itemPath));
           row.addEventListener("dragstart", (event) => {
             if (event.shiftKey || __marqueeState) {
               event.preventDefault();
               return;
             }
             event.dataTransfer.effectAllowed = "copy";
-            event.dataTransfer.setData("application/x-atomsculptor-structure-path", item.path);
-            event.dataTransfer.setData("text/plain", item.path);
+            event.dataTransfer.setData("application/x-atomsculptor-structure-path", itemPath);
+            event.dataTransfer.setData("text/plain", itemPath);
           });
           row.style.cursor = "pointer";
         } else {
@@ -517,14 +551,14 @@ function buildTree(items, container, level) {
       // Right-click context menu for file operations (apply to all files)
       row.addEventListener("contextmenu", (event) => {
         event.preventDefault();
-        if (item.path && !__selectedFilePaths.has(item.path)) {
-          selectSingle(item.path);
+        if (itemPath && !__selectedFilePaths.has(itemPath)) {
+          selectSingle(itemPath);
         }
         const menu = createContextMenu();
-        menu.dataset.path = item.path;
+        menu.dataset.path = itemPath;
         menu.dataset.isStructure = String(isStructureItem(item));
         menu.dataset.paths = JSON.stringify(currentSelection());
-        menu.dataset.pasteTarget = parentDir(item.path);
+        menu.dataset.pasteTarget = parentDir(itemPath);
         updateContextMenuState(menu);
         // Position and show
         const x = Math.min(window.innerWidth - 160, event.pageX);
@@ -551,7 +585,7 @@ export function renderFiles(tree) {
   }
   empty.style.display = "none";
   container.style.display = "block";
-  buildTree(tree, container, 0);
+  buildTree(tree, container, 0, "");
   const keep = currentSelection().filter((p) => __fileRowsByPath.has(p));
   setSelection(keep);
 }

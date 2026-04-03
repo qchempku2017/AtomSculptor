@@ -2,7 +2,7 @@
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from shutil import copy2
+from shutil import copy2, rmtree
 
 from starlette.responses import HTMLResponse, JSONResponse, Response
 
@@ -11,6 +11,7 @@ from .filesystem import sandbox_root, build_file_tree
 from .structure import read_structure, write_structure, resolve_ase_io_format
 from .todo import serialize_todo_flow
 from .agent_session import session_service, runner
+from . import session_store
 from agent_team.context import get_context
 
 
@@ -378,19 +379,22 @@ async def api_file_delete_many(request):
         return JSONResponse({"error": "modifying toolbox/instructions files is not allowed"}, status_code=403)
 
     root = sandbox_root()
-    files_to_delete = []
+    items_to_delete = []
     for rel in normalized:
         fp = (root / rel).resolve()
         if not is_path_safe(fp, root):
             return JSONResponse({"error": f"access denied: {rel}"}, status_code=403)
-        if not fp.exists() or not fp.is_file():
+        if not fp.exists():
             return JSONResponse({"error": f"not found: {rel}"}, status_code=404)
-        files_to_delete.append((rel, fp))
+        items_to_delete.append((rel, fp))
 
     try:
-        for _, fp in files_to_delete:
-            fp.unlink()
-        return JSONResponse({"ok": True, "deleted": [rel for rel, _ in files_to_delete]})
+        for _, fp in items_to_delete:
+            if fp.is_dir():
+                rmtree(fp)
+            else:
+                fp.unlink()
+        return JSONResponse({"ok": True, "deleted": [rel for rel, _ in items_to_delete]})
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
 
@@ -573,6 +577,47 @@ async def api_reset(request):
         except Exception:
             pass
 
+        # Clear the in-memory session store
+        session_store.clear()
+
         return JSONResponse({"ok": True})
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+async def api_sessions_list(request):
+    """GET /api/sessions — list all in-memory sessions."""
+    return JSONResponse({"sessions": session_store.list_sessions()})
+
+
+async def api_session_rename(request):
+    """PATCH /api/sessions/rename — rename a session."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+
+    sid = str(body.get("session_id", "")).strip()
+    name = str(body.get("name", "")).strip()
+    if not sid or not name:
+        return JSONResponse({"error": "session_id and name required"}, status_code=400)
+
+    if session_store.rename(sid, name):
+        return JSONResponse({"ok": True})
+    return JSONResponse({"error": "session not found"}, status_code=404)
+
+
+async def api_session_delete(request):
+    """DELETE /api/sessions/delete — delete a session."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+
+    sid = str(body.get("session_id", "")).strip()
+    if not sid:
+        return JSONResponse({"error": "session_id required"}, status_code=400)
+
+    if session_store.delete(sid):
+        return JSONResponse({"ok": True})
+    return JSONResponse({"error": "session not found"}, status_code=404)

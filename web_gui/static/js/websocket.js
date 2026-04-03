@@ -14,6 +14,7 @@ import {
 import { updateTodo, updateAggregatorHint } from "./todo.js";
 import { renderFiles } from "./filesystem.js";
 import { tryAutoLoadFromResult } from "./structure.js";
+import { renderSessions, replayMessages } from "./sessions.js";
 
 let reconnectTimer = null;
 
@@ -31,6 +32,13 @@ function handleMsg(m) {
     case "aggregator_status": updateAggregatorHint(m.data); break;
     case "done": setProcessing(false); break;
     case "error": appendError(m.text, m.traceback); setProcessing(false); break;
+    case "session_activated":
+      S.currentSessionId = m.session_id;
+      S.sessions = m.sessions || [];
+      renderSessions(S.sessions, S.currentSessionId);
+      replayMessages(m.messages || []);
+      setProcessing(false);
+      break;
     default: break;
   }
 }

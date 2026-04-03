@@ -28,9 +28,10 @@
   <div class="col-divider" id="col-div-1"></div>
   <div class="col-divider" id="col-div-2"></div>
 
-  <div class="panel" id="panel-todo">
-    <div class="panel-hdr"><span>Task Flow</span><button id="btn-refresh-todo" title="Refresh">↻</button></div>
-    <div class="panel-body">
+    <div id="panel-left">
+    <div class="panel" id="panel-todo">
+      <div class="panel-hdr"><span>Task Flow</span><button id="btn-refresh-todo" title="Refresh">↻</button></div>
+      <div class="panel-body">
       <div id="session-info"></div>
       <div id="todo-graph"></div>
       <div id="todo-empty">No active plan.<br/>Send a message to start.</div>
@@ -42,8 +43,17 @@
         <div class="legend-item"><div class="legend-dot legend-dot-blocked"></div>Blocked</div>
         <div class="legend-item"><div class="legend-dot legend-dot-deprecated"></div>Deprecated</div>
       </div>
+      </div>
     </div>
-  </div>
+
+    <div class="panel" id="panel-sessions">
+      <div class="panel-hdr">
+        <span>Sessions</span>
+        <button id="btn-new-session" title="New Session">+</button>
+      </div>
+      <div class="panel-body" id="sessions-list"></div>
+    </div>
+    </div>
 
   <div class="panel" id="panel-chat">
     <div class="panel-hdr"><span>Chat</span>
@@ -176,7 +186,7 @@
                 <button id="ketcher-cancel" class="tool-panel-btn">Cancel</button>
               </div>
             </div>
-            <iframe id="ketcher-frame" sandbox="allow-scripts allow-same-origin"></iframe>
+            <iframe id="ketcher-frame" sandbox="allow-scripts"></iframe>
           </div>
 
           <!-- Surface builder panel -->

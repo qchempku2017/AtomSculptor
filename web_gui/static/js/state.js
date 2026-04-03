@@ -10,6 +10,9 @@ export const S = {
   aggregatorStatus: null,
   todoData: { tasks: [], finished: true },
 
+    currentSessionId: null,
+    sessions: [],
+
   renderer: null,
   scene: null,
   camera: null,

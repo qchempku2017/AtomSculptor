@@ -12,6 +12,7 @@ from .agent_session import runner, session_service, event_to_messages
 from .filesystem import sandbox_root, build_file_tree
 from .helpers import now_iso
 from .todo import serialize_todo_flow
+from . import session_store
 
 
 async def _send_json_or_stop(websocket: WebSocket, payload: dict) -> bool:
@@ -68,6 +69,18 @@ async def _push_file_updates(websocket: WebSocket) -> None:
         await asyncio.sleep(0.5)
 
 
+_STORED_MSG_TYPES = {"user_message", "agent_message", "tool_call", "tool_result", "error"}
+
+
+async def _send_and_store(
+    websocket: WebSocket, payload: dict, sid: str
+) -> bool:
+    """Send *payload* over *websocket* and persist it in the session store."""
+    if payload.get("type") in _STORED_MSG_TYPES:
+        session_store.add_message(sid, payload)
+    return await _send_json_or_stop(websocket, payload)
+
+
 async def _run_agent_task(
     websocket: WebSocket, user_id: str, session_id: str, user_text: str
 ) -> None:
@@ -82,7 +95,7 @@ async def _run_agent_task(
             new_message=content,
         ):
             for msg in event_to_messages(event):
-                if not await _send_json_or_stop(websocket, msg):
+                if not await _send_and_store(websocket, msg, session_id):
                     return
             if not await _send_json_or_stop(
                 websocket,
@@ -102,14 +115,31 @@ async def _run_agent_task(
     except WebSocketDisconnect:
         return
     except Exception as exc:
-        await _send_json_or_stop(
-            websocket,
-            {
-                "type": "error",
-                "text": str(exc),
-                "traceback": traceback.format_exc(),
-            },
-        )
+        err_payload = {
+            "type": "error",
+            "text": str(exc),
+            "traceback": traceback.format_exc(),
+        }
+        session_store.add_message(session_id, err_payload)
+        await _send_json_or_stop(websocket, err_payload)
+
+
+async def _cancel_agent(agent_task: asyncio.Task | None) -> None:
+    if agent_task and not agent_task.done():
+        agent_task.cancel()
+        try:
+            await agent_task
+        except asyncio.CancelledError:
+            pass
+
+
+async def _create_adk_session(user_id: str, fallback_id: str) -> str:
+    session = await session_service.create_session(
+        app_name="atom_sculptor", user_id=user_id,
+    )
+    return getattr(session, "id", None) or getattr(
+        session, "session_id", fallback_id
+    )
 
 
 async def ws_chat(websocket: WebSocket):
@@ -119,20 +149,19 @@ async def ws_chat(websocket: WebSocket):
     file_task: asyncio.Task | None = None
     agent_task: asyncio.Task | None = None
 
-    # Create ADK session
+    # Create first ADK session
     try:
-        session = await session_service.create_session(
-            app_name="atom_sculptor", user_id=user_id,
-        )
-        session_id = getattr(session, "id", None) or getattr(
-            session, "session_id", f"ws_{id(websocket)}"
-        )
+        session_id = await _create_adk_session(user_id, f"ws_{id(websocket)}")
     except Exception as exc:
         if await _send_json_or_stop(
             websocket, {"type": "error", "text": f"Session error: {exc}"}
         ):
             await _close_quietly(websocket)
         return
+
+    # Register initial session
+    name = session_store._next_name()
+    session_store.register(session_id, name)
 
     # Push initial state
     root = sandbox_root()
@@ -142,6 +171,17 @@ async def ws_chat(websocket: WebSocket):
         return
     if not await _send_json_or_stop(
         websocket, {"type": "files_update", "data": build_file_tree(root, root)},
+    ):
+        return
+    if not await _send_json_or_stop(
+        websocket,
+        {
+            "type": "session_activated",
+            "session_id": session_id,
+            "name": name,
+            "messages": [],
+            "sessions": session_store.list_sessions(),
+        },
     ):
         return
 
@@ -177,14 +217,66 @@ async def ws_chat(websocket: WebSocket):
                 user_text = raw.get("message", "").strip()
                 if not user_text:
                     continue
-                if not await _send_json_or_stop(
-                    websocket,
-                    {"type": "user_message", "text": user_text, "timestamp": now_iso()},
-                ):
+                user_msg = {"type": "user_message", "text": user_text, "timestamp": now_iso()}
+                if not await _send_and_store(websocket, user_msg, session_id):
                     break
                 agent_task = asyncio.create_task(
                     _run_agent_task(websocket, user_id, session_id, user_text)
                 )
+
+            elif kind == "new_session":
+                await _cancel_agent(agent_task)
+                agent_task = None
+                try:
+                    new_sid = await _create_adk_session(user_id, f"ws_{id(websocket)}_new")
+                    new_name = session_store._next_name()
+                    session_store.register(new_sid, new_name)
+                    session_id = new_sid
+                    if not await _send_json_or_stop(
+                        websocket,
+                        {
+                            "type": "session_activated",
+                            "session_id": session_id,
+                            "name": new_name,
+                            "messages": [],
+                            "sessions": session_store.list_sessions(),
+                        },
+                    ):
+                        break
+                    if not await _send_json_or_stop(
+                        websocket, {"type": "todo_flow_update", "data": serialize_todo_flow()}
+                    ):
+                        break
+                except Exception as exc:
+                    await _send_json_or_stop(
+                        websocket, {"type": "error", "text": f"New session error: {exc}"}
+                    )
+
+            elif kind == "switch_session":
+                target_id = raw.get("session_id", "")
+                if not target_id or target_id not in {s["id"] for s in session_store.list_sessions()}:
+                    await _send_json_or_stop(
+                        websocket, {"type": "error", "text": "Session not found"}
+                    )
+                    continue
+                await _cancel_agent(agent_task)
+                agent_task = None
+                session_id = target_id
+                entry_name = next(
+                    (s["name"] for s in session_store.list_sessions() if s["id"] == target_id),
+                    target_id,
+                )
+                if not await _send_json_or_stop(
+                    websocket,
+                    {
+                        "type": "session_activated",
+                        "session_id": session_id,
+                        "name": entry_name,
+                        "messages": session_store.get_messages(session_id),
+                        "sessions": session_store.list_sessions(),
+                    },
+                ):
+                    break
 
             elif kind == "stop":
                 if agent_task and not agent_task.done():

@@ -70,6 +70,9 @@ from .routes import (
     api_file_duplicate,
     api_file_paste,
     api_file_upload,
+    api_sessions_list,
+    api_session_rename,
+    api_session_delete,
 )
 from .websocket_handler import ws_chat
 
@@ -98,6 +101,9 @@ app = Starlette(
         Route("/api/file/duplicate", api_file_duplicate, methods=["POST"]),
         Route("/api/file/paste", api_file_paste, methods=["POST"]),
         Route("/api/file/upload", api_file_upload, methods=["POST"]),
+            Route("/api/sessions", api_sessions_list, methods=["GET"]),
+            Route("/api/sessions/rename", api_session_rename, methods=["PATCH"]),
+            Route("/api/sessions/delete", api_session_delete, methods=["DELETE"]),
         WebSocketRoute("/ws", ws_chat),
         Mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static"),
     ],

@@ -213,10 +213,6 @@ async function requestKetcherSmiles() {
   const frame = /** @type {HTMLIFrameElement} */ ($("#ketcher-frame"));
   if (!frame?.contentWindow) return "";
 
-  if (frame.contentWindow.ketcher?.getSmiles) {
-    return frame.contentWindow.ketcher.getSmiles();
-  }
-
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       window.removeEventListener("message", onMessage);
