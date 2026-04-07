@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from shutil import copy2, rmtree
 
 from starlette.responses import HTMLResponse, JSONResponse, Response
 
@@ -10,6 +11,7 @@ from .filesystem import sandbox_root, build_file_tree
 from .structure import read_structure, write_structure, resolve_ase_io_format
 from .todo import serialize_todo_flow
 from .agent_session import session_service, runner
+from . import session_store
 from agent_team.context import get_context
 
 
@@ -20,6 +22,28 @@ _EXPORT_FORMATS = {
     "pdb": {"ase": "pdb", "suffix": ".pdb", "content_type": "chemical/x-pdb"},
     "poscar": {"ase": "vasp", "suffix": ".vasp", "content_type": "text/plain"},
 }
+
+_PROTECTED_PARTS = {"toolbox", "instructions"}
+
+
+def _normalize_rel(path_value: str) -> str:
+    return str(path_value or "").strip().replace("\\", "/").lstrip("/")
+
+
+def _is_protected_rel(rel: str) -> bool:
+    parts = [part for part in Path(_normalize_rel(rel)).parts if part not in ("", ".")]
+    return any(part in _PROTECTED_PARTS for part in parts)
+
+
+def _copy_target_for(source: Path, target_dir: Path) -> Path:
+    base = source.stem
+    suffix = source.suffix
+    candidate = target_dir / f"{base}_copy{suffix}"
+    counter = 1
+    while candidate.exists():
+        candidate = target_dir / f"{base}_copy_{counter}{suffix}"
+        counter += 1
+    return candidate
 
 
 async def index(request):
@@ -262,15 +286,65 @@ async def api_structure_build_supercell(request):
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
+async def api_structure_add_molecule(request):
+    """POST /api/structure/add-molecule — convert SMILES to 3D atom positions."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+
+    smiles = str(body.get("smiles", "")).strip()
+    if not smiles:
+        return JSONResponse({"error": "SMILES string required"}, status_code=400)
+
+    try:
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+
+        mol = Chem.MolFromSmiles(smiles)
+        if mol is None:
+            return JSONResponse({"error": "Invalid SMILES string"}, status_code=400)
+
+        mol = Chem.AddHs(mol)
+        result = AllChem.EmbedMolecule(mol, AllChem.ETKDG())
+        if result != 0:
+            return JSONResponse({"error": "Could not generate 3D coordinates"}, status_code=400)
+
+        AllChem.MMFFOptimizeMolecule(mol)
+
+        conf = mol.GetConformer()
+        atoms = []
+        for i in range(mol.GetNumAtoms()):
+            atom = mol.GetAtomWithIdx(i)
+            pos = conf.GetAtomPosition(i)
+            atoms.append({
+                "symbol": atom.GetSymbol(),
+                "x": round(pos.x, 4),
+                "y": round(pos.y, 4),
+                "z": round(pos.z, 4),
+            })
+
+        return JSONResponse({
+            "atoms": atoms,
+            "smiles": Chem.MolToSmiles(Chem.RemoveHs(mol)),
+        })
+    except ImportError:
+        return JSONResponse({"error": "RDKit is not installed"}, status_code=500)
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
 async def api_file_delete(request):
     try:
         body = await request.json()
     except Exception:
         return JSONResponse({"error": "invalid JSON"}, status_code=400)
 
-    rel = body.get("path", "")
+    rel = _normalize_rel(body.get("path", ""))
     if not rel:
         return JSONResponse({"error": "path required"}, status_code=400)
+    if _is_protected_rel(rel):
+        return JSONResponse({"error": "modifying toolbox/instructions files is not allowed"}, status_code=403)
 
     root = sandbox_root()
     fp = (root / rel).resolve()
@@ -288,16 +362,55 @@ async def api_file_delete(request):
         return JSONResponse({"error": str(exc)}, status_code=500)
 
 
+async def api_file_delete_many(request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+
+    paths = body.get("paths")
+    if not isinstance(paths, list) or not paths:
+        return JSONResponse({"error": "paths must be a non-empty list"}, status_code=400)
+
+    normalized = [_normalize_rel(p) for p in paths]
+    if any(not p for p in normalized):
+        return JSONResponse({"error": "all paths must be non-empty"}, status_code=400)
+    if any(_is_protected_rel(p) for p in normalized):
+        return JSONResponse({"error": "modifying toolbox/instructions files is not allowed"}, status_code=403)
+
+    root = sandbox_root()
+    items_to_delete = []
+    for rel in normalized:
+        fp = (root / rel).resolve()
+        if not is_path_safe(fp, root):
+            return JSONResponse({"error": f"access denied: {rel}"}, status_code=403)
+        if not fp.exists():
+            return JSONResponse({"error": f"not found: {rel}"}, status_code=404)
+        items_to_delete.append((rel, fp))
+
+    try:
+        for _, fp in items_to_delete:
+            if fp.is_dir():
+                rmtree(fp)
+            else:
+                fp.unlink()
+        return JSONResponse({"ok": True, "deleted": [rel for rel, _ in items_to_delete]})
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
 async def api_file_rename(request):
     try:
         body = await request.json()
     except Exception:
         return JSONResponse({"error": "invalid JSON"}, status_code=400)
 
-    rel = body.get("path", "")
+    rel = _normalize_rel(body.get("path", ""))
     new_name = body.get("new_name", "")
     if not rel or not new_name:
         return JSONResponse({"error": "path and new_name required"}, status_code=400)
+    if _is_protected_rel(rel):
+        return JSONResponse({"error": "modifying toolbox/instructions files is not allowed"}, status_code=403)
 
     # prevent path traversal in new name
     if "/" in new_name or ".." in new_name or "\\" in new_name:
@@ -341,6 +454,8 @@ async def api_file_upload(request):
         return JSONResponse({"error": "invalid filename"}, status_code=400)
 
     target = root / name
+    if _is_protected_rel(str(target.relative_to(root))):
+        return JSONResponse({"error": "modifying toolbox/instructions files is not allowed"}, status_code=403)
     counter = 1
     while target.exists():
         target = root / f"{target.stem}_{counter}{target.suffix}"
@@ -360,9 +475,11 @@ async def api_file_duplicate(request):
     except Exception:
         return JSONResponse({"error": "invalid JSON"}, status_code=400)
 
-    rel = body.get("path", "")
+    rel = _normalize_rel(body.get("path", ""))
     if not rel:
         return JSONResponse({"error": "path required"}, status_code=400)
+    if _is_protected_rel(rel):
+        return JSONResponse({"error": "modifying toolbox/instructions files is not allowed"}, status_code=403)
 
     root = sandbox_root()
     fp = (root / rel).resolve()
@@ -371,19 +488,57 @@ async def api_file_duplicate(request):
     if not fp.exists() or not fp.is_file():
         return JSONResponse({"error": "not found"}, status_code=404)
 
-    from shutil import copy2
-
-    base = fp.stem
-    suffix = fp.suffix
-    candidate = fp.parent / f"{base}_copy{suffix}"
-    counter = 1
-    while candidate.exists():
-        candidate = fp.parent / f"{base}_copy_{counter}{suffix}"
-        counter += 1
+    candidate = _copy_target_for(fp, fp.parent)
 
     try:
         copy2(fp, candidate)
         return JSONResponse({"ok": True, "path": str(candidate.relative_to(root))})
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+async def api_file_paste(request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+
+    paths = body.get("paths")
+    target_rel = _normalize_rel(body.get("target_dir", ""))
+    if not isinstance(paths, list) or not paths:
+        return JSONResponse({"error": "paths must be a non-empty list"}, status_code=400)
+
+    normalized = [_normalize_rel(p) for p in paths]
+    if any(not p for p in normalized):
+        return JSONResponse({"error": "all paths must be non-empty"}, status_code=400)
+    if any(_is_protected_rel(p) for p in normalized):
+        return JSONResponse({"error": "modifying toolbox/instructions files is not allowed"}, status_code=403)
+
+    root = sandbox_root()
+    target_dir = (root / target_rel).resolve() if target_rel else root
+    if not is_path_safe(target_dir, root):
+        return JSONResponse({"error": "invalid target_dir"}, status_code=400)
+    if not target_dir.exists() or not target_dir.is_dir():
+        return JSONResponse({"error": "target_dir not found"}, status_code=404)
+    if _is_protected_rel(str(target_dir.relative_to(root))):
+        return JSONResponse({"error": "modifying toolbox/instructions files is not allowed"}, status_code=403)
+
+    sources = []
+    for rel in normalized:
+        fp = (root / rel).resolve()
+        if not is_path_safe(fp, root):
+            return JSONResponse({"error": f"access denied: {rel}"}, status_code=403)
+        if not fp.exists() or not fp.is_file():
+            return JSONResponse({"error": f"not found: {rel}"}, status_code=404)
+        sources.append((rel, fp))
+
+    pasted = []
+    try:
+        for _, src in sources:
+            dest = _copy_target_for(src, target_dir)
+            copy2(src, dest)
+            pasted.append(str(dest.relative_to(root)))
+        return JSONResponse({"ok": True, "paths": pasted})
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
 
@@ -422,6 +577,47 @@ async def api_reset(request):
         except Exception:
             pass
 
+        # Clear the in-memory session store
+        session_store.clear()
+
         return JSONResponse({"ok": True})
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+async def api_sessions_list(request):
+    """GET /api/sessions — list all in-memory sessions."""
+    return JSONResponse({"sessions": session_store.list_sessions()})
+
+
+async def api_session_rename(request):
+    """PATCH /api/sessions/rename — rename a session."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+
+    sid = str(body.get("session_id", "")).strip()
+    name = str(body.get("name", "")).strip()
+    if not sid or not name:
+        return JSONResponse({"error": "session_id and name required"}, status_code=400)
+
+    if session_store.rename(sid, name):
+        return JSONResponse({"ok": True})
+    return JSONResponse({"error": "session not found"}, status_code=404)
+
+
+async def api_session_delete(request):
+    """DELETE /api/sessions/delete — delete a session."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+
+    sid = str(body.get("session_id", "")).strip()
+    if not sid:
+        return JSONResponse({"error": "session_id required"}, status_code=400)
+
+    if session_store.delete(sid):
+        return JSONResponse({"ok": True})
+    return JSONResponse({"error": "session not found"}, status_code=404)

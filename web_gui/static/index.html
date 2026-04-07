@@ -6,16 +6,6 @@
 <title>AtomSculptor</title>
 <link rel="stylesheet" href="__INDEX_CSS__"/>
 
-<!-- Local icon styling for inline SVG toolbar icons -->
-<style>
-  .tb-btn .icon { width:18px; height:18px; display:inline-block; vertical-align:middle; }
-  .tb-btn { display:inline-flex; align-items:center; justify-content:center; padding:6px; }
-  .tb-btn.active { background:var(--btn-active-bg, rgba(0,0,0,0.06)); }
-  .tb-btn .icon svg { width:100%; height:100%; }
-  .tb-btn .icon path, .tb-btn .icon rect, .tb-btn .icon circle, .tb-btn .icon line { stroke:currentColor; fill: none; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
-  .tb-btn .icon .filled { fill:currentColor; stroke:none; }
-</style>
-
 <script src="/static/node_modules/cytoscape/dist/cytoscape.min.js"></script>
 <script src="/static/node_modules/dagre/dist/dagre.min.js"></script>
 <script src="/static/node_modules/cytoscape-dagre/cytoscape-dagre.js"></script>
@@ -37,26 +27,36 @@
   <div class="col-divider" id="col-div-1"></div>
   <div class="col-divider" id="col-div-2"></div>
 
-  <div class="panel" id="panel-todo">
-    <div class="panel-hdr"><span>Task Flow</span><button id="btn-refresh-todo" title="Refresh">↻</button></div>
-    <div class="panel-body" style="display:flex;flex-direction:column">
+    <div id="panel-left">
+    <div class="panel" id="panel-todo">
+      <div class="panel-hdr"><span>Task Flow</span><button id="btn-refresh-todo" title="Refresh">↻</button></div>
+      <div class="panel-body">
       <div id="session-info"></div>
       <div id="todo-graph"></div>
       <div id="todo-empty">No active plan.<br/>Send a message to start.</div>
       <div id="legend">
-        <div class="legend-item"><div class="legend-dot" style="background:var(--s-pending)"></div>Pending</div>
-        <div class="legend-item"><div class="legend-dot" style="background:var(--s-ready)"></div>Ready</div>
-        <div class="legend-item"><div class="legend-dot" style="background:var(--s-progress)"></div>In Progress</div>
-        <div class="legend-item"><div class="legend-dot" style="background:var(--s-done)"></div>Done</div>
-        <div class="legend-item"><div class="legend-dot" style="background:var(--s-blocked)"></div>Blocked</div>
-        <div class="legend-item"><div class="legend-dot" style="background:var(--s-deprecated)"></div>Deprecated</div>
+        <div class="legend-item"><div class="legend-dot legend-dot-pending"></div>Pending</div>
+        <div class="legend-item"><div class="legend-dot legend-dot-ready"></div>Ready</div>
+        <div class="legend-item"><div class="legend-dot legend-dot-progress"></div>In Progress</div>
+        <div class="legend-item"><div class="legend-dot legend-dot-done"></div>Done</div>
+        <div class="legend-item"><div class="legend-dot legend-dot-blocked"></div>Blocked</div>
+        <div class="legend-item"><div class="legend-dot legend-dot-deprecated"></div>Deprecated</div>
+      </div>
       </div>
     </div>
-  </div>
+
+    <div class="panel" id="panel-sessions">
+      <div class="panel-hdr">
+        <span>Sessions</span>
+        <button id="btn-new-session" title="New Session">+</button>
+      </div>
+      <div class="panel-body" id="sessions-list"></div>
+    </div>
+    </div>
 
   <div class="panel" id="panel-chat">
     <div class="panel-hdr"><span>Chat</span>
-      <div style="display:inline-flex;gap:8px;align-items:center">
+      <div class="chat-hdr-actions">
         <button id="btn-reset-session" class="panel-btn" title="Reset Session">
           <span class="rs-icon">⟲</span>
           <span class="rs-label">Reset Session</span>
@@ -74,21 +74,21 @@
   <div class="panel" id="panel-struct">
     <div class="panel-hdr">
       <span>Structure</span>
-      <span id="struct-file-label" style="font-size:11px;color:var(--text3);font-weight:400;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+      <span id="struct-file-label"></span>
     </div>
     <div class="panel-body">
       <div id="struct-wrap">
         <div id="edit-toolbar">
           <button class="tb-btn active" id="tb-orbit" data-mode="orbit" data-tip="Orbit (1)" aria-label="Orbit">
             <span class="icon icon-orbit">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/></svg>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><ellipse cx="12" cy="12" rx="11" ry="4" transform="rotate(-25 12 12)"/></svg>
             </span>
           </button>
           <button class="tb-btn" id="tb-box" data-tip="Selection (2)" aria-label="Selection">
-            <span class="icon icon-box"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14"/></svg></span>
+            <span class="icon icon-box"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="1" stroke-dasharray="3 2"/></svg></span>
           </button>
           <button class="tb-btn" id="tb-translate" data-mode="translate" data-tip="Translate (W)" aria-label="Translate">
-            <span class="icon icon-translate"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="12" y1="2" x2="12" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/></svg></span>
+            <span class="icon icon-translate"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg></span>
           </button>
           <button class="tb-btn" id="tb-rotate" data-mode="rotate" data-tip="Rotate (R)" aria-label="Rotate">
             <span class="icon icon-rotate"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 0-3.8 7.2"/><polyline points="21 3 21 9 15 9"/></svg></span>
@@ -97,7 +97,7 @@
             <span class="icon icon-scale"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="3 9 3 3 9 3"/><polyline points="21 15 21 21 15 21"/><line x1="3" y1="3" x2="21" y2="21"/></svg></span>
           </button>
           <div class="tb-sep"></div>
-          <button class="tb-btn" id="tb-add" data-tip="Add Atom (5)" aria-label="Add Atom">
+          <button class="tb-btn" id="tb-add" data-tip="Add (5)" aria-label="Add Atom">
             <span class="icon icon-add"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></span>
           </button>
           <button class="tb-btn" id="tb-delete" data-mode="delete" data-tip="Delete (6)" aria-label="Delete">
@@ -111,14 +111,14 @@
             <span class="icon icon-supercell"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l7 4v8l-7 4-7-4V6l7-4z"/><path d="M5 10l7 4 7-4"/></svg></span>
           </button>
           <button class="tb-btn" id="tb-lattice" data-tip="Lattice Operations" aria-label="Lattice Operations">
-            <span class="icon icon-lattice"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></span>
+            <span class="icon icon-lattice"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="5" r="1.5" class="filled"/><circle cx="12" cy="5" r="1.5" class="filled"/><circle cx="19" cy="5" r="1.5" class="filled"/><circle cx="5" cy="12" r="1.5" class="filled"/><circle cx="12" cy="12" r="1.5" class="filled"/><circle cx="19" cy="12" r="1.5" class="filled"/><circle cx="5" cy="19" r="1.5" class="filled"/><circle cx="12" cy="19" r="1.5" class="filled"/><circle cx="19" cy="19" r="1.5" class="filled"/></svg></span>
           </button>
           <div class="tb-sep"></div>
           <button class="tb-btn" id="tb-reset" data-tip="Reset View" aria-label="Reset View">
-            <span class="icon icon-reset"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 0-3.8 7.2"/><polyline points="21 3 21 9 15 9"/></svg></span>
+            <span class="icon icon-reset"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><line x1="12" y1="2" x2="12" y2="7"/><line x1="12" y1="17" x2="12" y2="22"/><line x1="2" y1="12" x2="7" y2="12"/><line x1="17" y1="12" x2="22" y2="12"/></svg></span>
           </button>
           <button class="tb-btn" id="tb-camera" data-tip="Camera: Perspective" aria-label="Toggle Camera">
-            <span class="icon icon-camera"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="18" height="10" rx="1"/><line x1="12" y1="10" x2="12" y2="14"/><line x1="8" y1="12" x2="16" y2="12"/></svg></span>
+            <span class="icon icon-camera"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></span>
           </button>
           <button class="tb-btn" id="tb-save" data-tip="Save (Ctrl+S)" aria-label="Save">
             <span class="icon icon-save"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><rect x="7" y="7" width="10" height="7" class="filled"/></svg></span>
@@ -133,22 +133,59 @@
           <div id="viewer-empty">Click a structure file<br/>(.cif .xyz .vasp .pdb or POSCAR/CONTCAR) to view</div>
           <div id="box-select-overlay"></div>
 
-          <!-- Add atom panel -->
+          <!-- Add atom / molecule panel -->
           <div id="add-panel" class="tool-panel">
-            <div class="tool-panel-title">Add Atom</div>
-            <label class="tool-panel-label">Periodic Table</label>
-            <div id="add-periodic-table" class="periodic-table"></div>
-            <label class="tool-panel-label">Coordinates (Å)</label>
-            <div class="tool-panel-row">
-              <input id="add-x" type="number" value="0" step="0.01" class="tool-panel-input tool-panel-input-sm"/>
-              <input id="add-y" type="number" value="0" step="0.01" class="tool-panel-input tool-panel-input-sm"/>
-              <input id="add-z" type="number" value="0" step="0.01" class="tool-panel-input tool-panel-input-sm"/>
+            <div class="tool-panel-title">Add</div>
+            <div class="add-tabs">
+              <button class="add-tab active" data-add-tab="atom">Atom</button>
+              <button class="add-tab" data-add-tab="molecule">Molecule</button>
             </div>
-            <div class="tool-panel-actions">
-              <button id="add-build" class="tool-panel-btn primary">Add</button>
-              <button id="add-cancel" class="tool-panel-btn">Cancel</button>
+
+            <!-- Atom tab -->
+            <div id="add-tab-atom" class="add-tab-content show">
+              <label class="tool-panel-label">Periodic Table</label>
+              <div id="add-periodic-table" class="periodic-table"></div>
+              <label class="tool-panel-label">Coordinates (Å)</label>
+              <div class="tool-panel-row">
+                <input id="add-x" type="number" value="0" step="0.01" class="tool-panel-input tool-panel-input-sm"/>
+                <input id="add-y" type="number" value="0" step="0.01" class="tool-panel-input tool-panel-input-sm"/>
+                <input id="add-z" type="number" value="0" step="0.01" class="tool-panel-input tool-panel-input-sm"/>
+              </div>
+              <div class="tool-panel-actions">
+                <button id="add-build" class="tool-panel-btn primary">Add</button>
+                <button id="add-cancel" class="tool-panel-btn">Cancel</button>
+              </div>
+              <div id="add-error" class="tool-panel-error"></div>
             </div>
-            <div id="add-error" class="tool-panel-error"></div>
+
+            <!-- Molecule tab -->
+            <div id="add-tab-molecule" class="add-tab-content">
+              <label class="tool-panel-label" for="mol-smiles">SMILES input (paste or generated from drawing)</label>
+              <div class="mol-smiles-row">
+                <textarea id="mol-smiles" placeholder="e.g. CCO, c1ccccc1, CC(=O)O" class="tool-panel-input mol-smiles-input" rows="2"></textarea>
+              </div>
+              <label class="tool-panel-label">Draw molecule (opens Ketcher)</label>
+              <div class="mol-draw-row">
+                <button id="mol-draw-btn" class="tool-panel-btn" title="Draw molecule in editor">Draw</button>
+              </div>
+              <div class="tool-panel-actions">
+                <button id="mol-add" class="tool-panel-btn primary">Add</button>
+                <button id="mol-cancel" class="tool-panel-btn">Cancel</button>
+              </div>
+              <div id="mol-error" class="tool-panel-error"></div>
+            </div>
+          </div>
+
+          <!-- Ketcher editor modal -->
+          <div id="ketcher-modal" class="ketcher-modal">
+            <div class="ketcher-modal-bar">
+              <span class="ketcher-modal-title">Molecule Editor</span>
+              <div class="ketcher-modal-actions">
+                <button id="ketcher-add" class="tool-panel-btn primary">Add</button>
+                <button id="ketcher-cancel" class="tool-panel-btn">Cancel</button>
+              </div>
+            </div>
+            <iframe id="ketcher-frame" sandbox="allow-scripts"></iframe>
           </div>
 
           <!-- Surface builder panel -->
@@ -220,9 +257,9 @@
               <input id="la-rm21" type="number" value="0" step="0.1" class="tool-panel-input sc-matrix-input"/>
               <input id="la-rm22" type="number" value="1" step="0.1" class="tool-panel-input sc-matrix-input sc-matrix-diag"/>
             </div>
-            <label class="tool-panel-row" style="align-items:center; gap:6px; margin-top:4px;">
+            <label class="tool-panel-row tool-panel-checkbox-row">
               <input id="la-scale-atoms" type="checkbox" checked />
-              <span style="font-size:11px; color:var(--text3);">Scale atoms with lattice</span>
+              <span class="tool-panel-hint">Scale atoms with lattice</span>
             </label>
             <div class="tool-panel-actions">
               <button id="la-update-real" class="tool-panel-btn">Apply Scale</button>
@@ -245,12 +282,12 @@
               <input id="sel-expand-radius" type="number" value="1.5" step="0.1" class="tool-panel-input tool-panel-input-sm" />
               <button id="sel-expand-btn" class="tool-panel-btn">Expand</button>
             </div>
-            <div class="tool-panel-row" style="margin-top:6px;">
+            <div class="tool-panel-row tool-panel-row-spaced">
               <button id="sel-invert-btn" class="tool-panel-btn">Invert Selection</button>
               <button id="sel-extract-btn" class="tool-panel-btn">Extract to Layer</button>
             </div>
-            <label class="tool-panel-label" style="margin-top:8px; font-size:12px; color:var(--text3);">Hints</label>
-            <div style="font-size:12px; color:var(--text3); margin-bottom:8px;">
+            <label class="tool-panel-label tool-panel-label-hints">Hints</label>
+            <div class="tool-panel-hint-block">
               Left click: select atoms · Shift + Left drag: box selection
             </div>
             <div class="tool-panel-actions">
@@ -284,13 +321,17 @@
             <div class="ai-row"><span>y</span><span id="ai-y">-</span></div>
             <div class="ai-row"><span>z</span><span id="ai-z">-</span></div>
             <div class="ai-count" id="ai-count" style="display:none"></div>
+            <button id="ai-change-element" class="tool-panel-btn" style="display:none">Change Element</button>
+            <div id="ai-symbol-picker" style="display:none">
+              <div id="ai-periodic-table" class="periodic-table"></div>
+            </div>
           </div>
 
           <div id="struct-statusbar">
             <span id="sb-mode">Mode: Orbit</span>
             <span id="sb-natoms">-</span>
             <span id="sb-sel">-</span>
-            <span id="sb-hint" style="margin-left:auto;color:var(--text3)"></span>
+            <span id="sb-hint"></span>
           </div>
         </div>
       </div>

@@ -282,10 +282,10 @@ def calculate_distance(folder: str, file_name: str, index1: int, index2: int) ->
     }
 
 def build_supercell(folder: str, file_name: str, repetitions: list[int] | list[list[int]], output_name: Optional[str] = None) -> dict:
-    f"""
+    """
     Generates a supercell from the given structure by repeating it along each axis.
      - repetitions can be either a list of three integers [n1, n2, n3] or a 3x3 matrix for general supercells.
-     - output_name is optional; if not provided, the output file will be named based on the input file. Default output format is {DEFAULT_SAVE_TYPE}.
+     - output_name is optional; if not provided, the output file will be named based on the input file. Default output format is extxyz.
     """
     if output_name:
         output_name = _normalize_file_name(output_name)
@@ -312,13 +312,13 @@ def build_supercell(folder: str, file_name: str, repetitions: list[int] | list[l
     }
 
 def build_surface(folder: str, file_name: str, miller_indices: list, layers: int, vacuum: float, output_name: Optional[str] = None, need_conventional: bool = True) -> dict:
-    f"""
-    Creates a surface slab from a bulk structure.
+    """
+    Creates a surface slab from a bulk structure. After creation, remember to consider whether surface size is enough for adsorption related tasks.
      - miller_indices is a list of three integers representing the Miller indices of the surface.
      - layers is the number of atomic layers to include in the slab.
      - vacuum is the amount of vacuum (in Å) to add above the slab.
-     - output_name is optional; if not provided, the output file will be named based on the input file. Default output format is {DEFAULT_SAVE_TYPE}.
-     - need_conventional indicates whether to convert the structure to its conventional cell before building the surface, which can help ensure correct surface orientation for non-standard cells.
+     - output_name is optional; if not provided, the output file will be named based on the input file. Default output format is extxyz.
+     - need_conventional: whether to convert the structure to its conventional cell before building the surface, which can help ensure correct surface orientation for non-standard cells.
     """
     try:
         if output_name:

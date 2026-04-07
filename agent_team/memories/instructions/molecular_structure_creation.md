@@ -8,26 +8,34 @@
    - For simple molecules, use ASE's built-in molecule database
 
 2. **Determine construction method**
-   - **Option A: ASE molecule database** - for common molecules (H2O, CO2, etc.)
+   - **Option A: ASE molecule database** - for common molecules (H2O, CO2, C60, etc.)
    - **Option B: SMILES strings** - for organic molecules with RDKit
    - **Option C: Manual construction** - for complex organometallics
+   - **Option D: Endohedral structures** - for molecules inside cages
 
 3. **Build molecular structure**
    - For ASE database: Use `ase.build.molecule()` function
    - For SMILES: Use RDKit to generate 3D coordinates
    - For manual: Define atomic positions based on literature/experimental data
+   - For endohedral: Build cage, then insert guest at center
 
 4. **Validate molecular geometry**
    - Check bond lengths match expected values
    - Verify coordination and geometry
    - For organometallics: check metal-ligand distances
+   - For endohedral: verify guest fits within cage (consider vdW radii)
 
-5. **Geometry optimization (if needed)**
+5. **NEB pathway generation (if needed)**
+   - Identify insertion/extraction pathways
+   - Generate intermediate images between initial and final states
+   - Consider ring/cage openings and steric constraints
+
+6. **Geometry optimization (if needed)**
    - Use force fields (MMFF, UFF) for initial optimization
    - Note: EMT calculator does not support all elements (e.g., Fe)
    - For unsupported calculators, use experimental parameters directly
 
-6. **Save and document**
+7. **Save and document**
    - Export in XYZ, CIF, or POSCAR formats
    - Document construction method and parameters
    - Record reference if using literature values
@@ -39,50 +47,46 @@
 - Common bond lengths (Å):
   - C-C: 1.43 (aromatic), 1.54 (aliphatic)
   - C-H: 1.08-1.10
+  - O-H (water): 0.97
+  - H-O-H angle: 104°
   - Metal-C (organometallics): varies by metal
   - Fe-C (ferrocene): ~2.05
 
+### Endohedral Fullerene Construction
+- C60 cage radius: ~3.51 Å
+- Effective cavity radius: ~1.81 Å (accounting for C vdW radius 1.70 Å)
+- Guest vdW radius must be considered for steric fit
+- Example: Xe (vdW 2.16 Å) slightly larger than cavity → steric interaction
+
+### NEB Pathway Generation
+- Identify possible insertion/extraction routes
+- C60 ring openings: hexagonal (12 rings, 1.41 Å radius), pentagonal (20 rings, 1.22 Å radius)
+- Generate intermediate images (typically 7-12 images)
+- Consider cage deformation for larger guests
+
+### ASE Molecule Database Examples
+- `molecule('H2O')` - Water with O-H=0.97Å, H-O-H=104°
+- `molecule('C60')` - Buckminsterfullerene
+- `molecule('C6H6')` - Benzene
+- Random orientations are normal for liquid simulations
+
 ### Organometallic Compound Construction
-- Need to build metal-ligand framework manually
+- Build metal-ligand framework manually
 - Example: Ferrocene Fe(C5H5)2
   - Staggered conformation common
   - Fe-C distance: 2.05 Å
-  - C-C bond in ring: 1.43 Å
-  - C-H bond: 1.08 Å
   - Ring separation: 3.30 Å
-
-### Conformational Considerations
-- Flexible molecules may have multiple conformers
-- Ring systems: staggered vs. eclipsed conformations
-- For high accuracy, consider geometry optimization
-- Document which conformer is used
 
 ## Common Pitfalls and Fixes
 
-1. **Materials Project doesn't have the molecule**
-   - Symptom: Search returns no results for molecular compound
-   - Cause: MP focuses on crystalline materials, not isolated molecules
-   - Fix: Build structure manually using experimental parameters
-
-2. **EMT calculator doesn't support all elements**
-   - Symptom: Geometry optimization fails for transition metals
-   - Cause: EMT potential limited to certain elements
-   - Fix: Use experimental/literature parameters directly without optimization
-
-3. **Incorrect coordination geometry**
-   - Symptom: Metal center has wrong coordination
-   - Cause: Manual construction with wrong angles/distances
-   - Fix: Verify against known structures (CSD, literature)
-
-4. **Unrealistic bond lengths**
-   - Symptom: Bonds too short or too long
-   - Cause: Incorrect manual parameter input
-   - Fix: Check experimental values from databases
-
-5. **Wrong molecular conformation**
-   - Symptom: Unexpected shape or stereochemistry
-   - Cause: Not considering conformational preferences
-   - Fix: Choose appropriate conformer (staggered vs. eclipsed for rings)
+| Pitfall | Symptom | Fix |
+|---------|---------|-----|
+| MP doesn't have molecule | Search returns no results | Build manually using experimental parameters |
+| EMT calculator unsupported | Optimization fails for transition metals | Use experimental parameters directly |
+| Wrong coordination geometry | Metal center has wrong coordination | Verify against known structures (CSD, literature) |
+| Unrealistic bond lengths | Bonds too short or too long | Check experimental values from databases |
+| Wrong molecular conformation | Unexpected shape/stereochemistry | Choose appropriate conformer (staggered vs. eclipsed) |
+| Guest too large for cage | Severe steric clash | Consider alternative cage or smaller guest |
 
 ## Additional Tips
 
@@ -93,11 +97,30 @@
 4. Check all bond lengths and angles
 5. Verify overall geometry and symmetry
 
+### NEB Pathway Considerations
+- Hexagonal ring pathways typically have lower barriers than pentagonal
+- High barriers (150-300 kcal/mol) explain why endohedral fullerenes are formed during synthesis, not by post-synthesis insertion
+- Save NEB structures as ASE trajectory files for direct use in calculations
+
 ### Useful Tools and Databases
-- **ASE molecule database**: Common small molecules (H2O, CO2, CH4, etc.)
+- **ASE molecule database**: Common small molecules (H2O, CO2, CH4, C60, etc.)
 - **RDKit with SMILES**: Organic molecules with automatic 3D generation
 - **Cambridge Structural Database (CSD)**: Experimental crystal structures
 - **Literature values**: Always cite sources for experimental parameters
+
+### Water Molecule Geometry (ASE)
+```python
+from ase.build import molecule
+water = molecule('H2O')
+# O at center, O-H = 0.97 Å, H-O-H = 104°
+# Random orientations normal for liquid simulations
+```
+
+### File Formats for Molecules
+- XYZ: Most common for isolated molecules
+- .extxyz: Preserves cell/PBC info if needed
+- CIF: If structure has crystallographic information
+- POSCAR: For VASP calculations
 
 ### Validation Checklist
 - [ ] All bond lengths within expected ranges
@@ -106,23 +129,3 @@
 - [ ] No steric clashes
 - [ ] Correct conformation chosen
 - [ ] Documentation includes parameter sources
-
-### Example: Ferrocene Construction
-```python
-# Parameters from literature
-fe_c_dist = 2.05  # Å
-c_c_bond = 1.43   # Å
-c_h_bond = 1.08   # Å
-ring_sep = 3.30   # Å
-
-# Build two Cp rings in staggered conformation
-# Place Fe at center
-# Position rings above and below Fe
-# Result: 21 atoms (1 Fe + 10 C + 10 H)
-```
-
-### File Formats for Molecules
-- XYZ: Most common for isolated molecules
-- CIF: If structure has crystallographic information
-- POSCAR: For VASP calculations
-- Consider periodic box size for molecular calculations

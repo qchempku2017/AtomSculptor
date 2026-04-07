@@ -7,6 +7,214 @@ import { loadStructure, isStructureFilename } from "./structure.js";
 
 // Context menu singleton
 let __fileContextMenu = null;
+let __fileMarquee = null;
+
+const __selectedFilePaths = new Set();
+const __fileRowsByPath = new Map();
+let __fileClipboard = [];
+let __marqueeState = null;
+let __fileHotkeysBound = false;
+let __fileHotkeysMuted = false;
+
+const PROTECTED_PATH_PARTS = new Set(["toolbox", "instructions"]);
+
+function normalizePath(path) {
+  return String(path || "").replace(/\\/g, "/").replace(/^\/+/, "");
+}
+
+function isProtectedPath(path) {
+  const rel = normalizePath(path);
+  if (!rel) return false;
+  return rel.split("/").some((part) => PROTECTED_PATH_PARTS.has(part));
+}
+
+function parentDir(path) {
+  const rel = normalizePath(path);
+  const idx = rel.lastIndexOf("/");
+  return idx > -1 ? rel.slice(0, idx) : "";
+}
+
+function parsePaths(raw) {
+  try {
+    const parsed = JSON.parse(raw || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function syncSelectionClasses() {
+  for (const [path, row] of __fileRowsByPath.entries()) {
+    row.classList.toggle("selected", __selectedFilePaths.has(path));
+  }
+}
+
+function setSelection(paths) {
+  __selectedFilePaths.clear();
+  for (const path of paths || []) {
+    const rel = normalizePath(path);
+    if (rel && __fileRowsByPath.has(rel)) __selectedFilePaths.add(rel);
+  }
+  syncSelectionClasses();
+}
+
+function selectSingle(path) {
+  setSelection([path]);
+}
+
+function toggleSelection(path) {
+  const rel = normalizePath(path);
+  if (!rel || !__fileRowsByPath.has(rel)) return;
+  if (__selectedFilePaths.has(rel)) __selectedFilePaths.delete(rel);
+  else __selectedFilePaths.add(rel);
+  syncSelectionClasses();
+}
+
+function currentSelection() {
+  return Array.from(__selectedFilePaths);
+}
+
+function getPasteTargetForSelection(selection) {
+  const selected = (selection || []).map((p) => normalizePath(p)).filter(Boolean);
+  if (!selected.length) return "";
+  const dirs = selected.map((p) => parentDir(p));
+  const first = dirs[0];
+  return dirs.every((d) => d === first) ? first : "";
+}
+
+function isTypingTarget(el) {
+  if (!el) return false;
+  const tag = (el.tagName || "").toLowerCase();
+  return tag === "input" || tag === "textarea" || el.isContentEditable;
+}
+
+function isFilePanelTarget(el) {
+  return Boolean(el && el.closest("#file-tree, #file-empty, #file-context-menu"));
+}
+
+function isViewportTarget(el) {
+  return Boolean(el && el.closest("#viewer-wrap, #struct-canvas, #panel-struct"));
+}
+
+function initFileHotkeyMuteGuard() {
+  if (document.body && document.body.dataset.fileHotkeyMuteGuardBound === "true") return;
+  if (document.body) document.body.dataset.fileHotkeyMuteGuardBound = "true";
+
+  document.addEventListener("pointerdown", (event) => {
+    if (isViewportTarget(event.target)) {
+      __fileHotkeysMuted = true;
+      return;
+    }
+    if (isFilePanelTarget(event.target)) {
+      __fileHotkeysMuted = false;
+    }
+  }, true);
+}
+
+initFileHotkeyMuteGuard();
+
+async function performPaste(targetDir) {
+  if (!__fileClipboard.length) return;
+  const target = normalizePath(targetDir || "");
+  const resp = await fetch("/api/file/paste", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ paths: __fileClipboard, target_dir: target }),
+  });
+  const data = await resp.json();
+  if (!data.ok) {
+    alert(data.error || "Paste failed");
+    return;
+  }
+  await refreshFileTree();
+}
+
+async function performDelete(paths) {
+  const selected = (paths || []).map((p) => normalizePath(p)).filter(Boolean);
+  if (!selected.length) return;
+  const label = selected.length === 1 ? selected[0] : `${selected.length} files`;
+  if (!confirm(`Delete ${label}? This cannot be undone.`)) return;
+
+  const resp = await fetch("/api/file/delete-many", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ paths: selected }),
+  });
+  const data = await resp.json();
+  if (!data.ok) {
+    alert(data.error || "Delete failed");
+    return;
+  }
+
+  setSelection([]);
+  await refreshFileTree();
+}
+
+function ensureMarquee() {
+  if (__fileMarquee) return __fileMarquee;
+  const box = document.createElement("div");
+  box.className = "file-tree-marquee";
+  box.style.display = "none";
+  document.body.appendChild(box);
+  __fileMarquee = box;
+  return box;
+}
+
+function intersects(a, b) {
+  return !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
+}
+
+function updateMarqueeSelection(rect) {
+  const next = new Set(__marqueeState.baseSelection);
+  for (const [path, row] of __fileRowsByPath.entries()) {
+    const rr = row.getBoundingClientRect();
+    if (intersects(rect, rr)) next.add(path);
+  }
+  setSelection(Array.from(next));
+}
+
+function startMarqueeSelection(event) {
+  const box = ensureMarquee();
+  const baseSelection = (event.metaKey || event.ctrlKey) ? new Set(__selectedFilePaths) : new Set();
+  if (!(event.metaKey || event.ctrlKey)) setSelection([]);
+
+  __marqueeState = {
+    startX: event.clientX,
+    startY: event.clientY,
+    baseSelection,
+  };
+
+  box.style.display = "block";
+  box.style.left = `${event.clientX}px`;
+  box.style.top = `${event.clientY}px`;
+  box.style.width = "0px";
+  box.style.height = "0px";
+
+  const onMove = (moveEvent) => {
+    if (!__marqueeState) return;
+    const x1 = Math.min(__marqueeState.startX, moveEvent.clientX);
+    const y1 = Math.min(__marqueeState.startY, moveEvent.clientY);
+    const x2 = Math.max(__marqueeState.startX, moveEvent.clientX);
+    const y2 = Math.max(__marqueeState.startY, moveEvent.clientY);
+
+    const rect = { left: x1, top: y1, right: x2, bottom: y2 };
+    box.style.left = `${x1}px`;
+    box.style.top = `${y1}px`;
+    box.style.width = `${x2 - x1}px`;
+    box.style.height = `${y2 - y1}px`;
+    updateMarqueeSelection(rect);
+  };
+
+  const onUp = () => {
+    box.style.display = "none";
+    __marqueeState = null;
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onUp);
+  };
+
+  document.addEventListener("mousemove", onMove);
+  document.addEventListener("mouseup", onUp);
+}
 
 async function uploadFileToSandbox(file) {
   const formData = new FormData();
@@ -66,6 +274,71 @@ function initFilePanelDragDrop() {
 
 initFilePanelDragDrop();
 
+function initFileMarqueeSelection() {
+  const fileTree = $("#file-tree");
+  if (!fileTree || fileTree.dataset.boxSelectBound === "true") return;
+  fileTree.dataset.boxSelectBound = "true";
+
+  fileTree.addEventListener("mousedown", (event) => {
+    if (event.button !== 0) return;
+    const onTreeItem = Boolean(event.target.closest(".tree-item"));
+    const shouldStartMarquee = event.shiftKey || !onTreeItem;
+    if (!shouldStartMarquee) return;
+    event.preventDefault();
+    startMarqueeSelection(event);
+  });
+}
+
+initFileMarqueeSelection();
+
+function initFileKeyboardShortcuts() {
+  if (__fileHotkeysBound) return;
+  __fileHotkeysBound = true;
+
+  document.addEventListener("keydown", async (event) => {
+    if (isTypingTarget(event.target)) return;
+    if (__fileHotkeysMuted) return;
+
+    const selection = currentSelection();
+    const hasSelection = selection.length > 0;
+    const mod = event.ctrlKey || event.metaKey;
+
+    if (!hasSelection && !(mod && event.key.toLowerCase() === "v")) return;
+
+    try {
+      if (event.key === "Delete") {
+        if (!hasSelection) return;
+        event.preventDefault();
+        await performDelete(selection);
+        return;
+      }
+
+      if (mod && event.key.toLowerCase() === "c") {
+        if (!hasSelection) return;
+        event.preventDefault();
+        if (selection.some((p) => isProtectedPath(p))) {
+          alert("Copy not allowed for toolbox/instructions files.");
+          return;
+        }
+        __fileClipboard = selection.slice();
+        return;
+      }
+
+      if (mod && event.key.toLowerCase() === "v") {
+        event.preventDefault();
+        if (!__fileClipboard.length) return;
+        const targetDir = getPasteTargetForSelection(selection);
+        await performPaste(targetDir);
+      }
+    } catch (err) {
+      console.error("file keyboard shortcut", err);
+      alert(String(err));
+    }
+  });
+}
+
+initFileKeyboardShortcuts();
+
 async function refreshFileTree() {
   try {
     const resp = await fetch("/api/files");
@@ -81,6 +354,30 @@ function hideContextMenu() {
   __fileContextMenu.style.display = "none";
 }
 
+function updateContextMenuState(menu) {
+  const selected = parsePaths(menu.dataset.paths);
+  const protectedSelection = selected.some((p) => isProtectedPath(p));
+  const targetDir = normalizePath(menu.dataset.pasteTarget || "");
+  const canPaste = __fileClipboard.length > 0 && !isProtectedPath(targetDir);
+  const singlePath = selected.length === 1 ? selected[0] : "";
+  const singleRow = singlePath ? __fileRowsByPath.get(singlePath) : null;
+  const canOpen = Boolean(singleRow && singleRow.dataset.type === "file");
+
+  for (const item of menu.querySelectorAll(".context-menu-item")) {
+    item.classList.remove("disabled");
+  }
+
+  const openItem = menu.querySelector(".context-menu-item[data-action='open']");
+  const copyItem = menu.querySelector(".context-menu-item[data-action='copy']");
+  const pasteItem = menu.querySelector(".context-menu-item[data-action='paste']");
+  const deleteItem = menu.querySelector(".context-menu-item[data-action='delete']");
+
+  if (openItem && !canOpen) openItem.classList.add("disabled");
+  if (copyItem && (selected.length === 0 || protectedSelection)) copyItem.classList.add("disabled");
+  if (pasteItem && !canPaste) pasteItem.classList.add("disabled");
+  if (deleteItem && (selected.length === 0 || protectedSelection)) deleteItem.classList.add("disabled");
+}
+
 function createContextMenu() {
   if (__fileContextMenu) return __fileContextMenu;
   const menu = document.createElement("div");
@@ -89,8 +386,8 @@ function createContextMenu() {
   menu.style.display = "none";
   menu.innerHTML = `
     <div class="context-menu-item" data-action="open">Open</div>
-    <div class="context-menu-item" data-action="duplicate">Duplicate</div>
-    <div class="context-menu-item" data-action="rename">Rename</div>
+    <div class="context-menu-item" data-action="copy">Copy</div>
+    <div class="context-menu-item" data-action="paste">Paste</div>
     <div class="context-menu-item" data-action="delete">Delete</div>
   `;
   document.body.appendChild(menu);
@@ -99,11 +396,19 @@ function createContextMenu() {
   menu.addEventListener("click", async (e) => {
     const action = e.target && e.target.dataset && e.target.dataset.action;
     if (!action) return;
-    const path = menu.dataset.path;
-    const isStruct = menu.dataset.isStructure === "true";
+    if (e.target.classList.contains("disabled")) return;
+
+    const selected = parsePaths(menu.dataset.paths);
+    const path = selected[0] || menu.dataset.path;
+    const row = path ? __fileRowsByPath.get(path) : null;
+    const isFile = Boolean(row && row.dataset.type === "file");
+    const isStruct = Boolean(row && row.dataset.isStructure === "true");
+    const pasteTarget = normalizePath(menu.dataset.pasteTarget || "");
+
     hideContextMenu();
     try {
       if (action === "open") {
+        if (selected.length !== 1 || !isFile) return;
         if (isStruct) {
           loadStructure(path);
         } else {
@@ -117,24 +422,12 @@ function createContextMenu() {
             alert(data.error || "Could not open file.");
           }
         }
+      } else if (action === "copy") {
+        __fileClipboard = selected.slice();
+      } else if (action === "paste") {
+        await performPaste(pasteTarget);
       } else if (action === "delete") {
-        if (!confirm(`Delete ${path}? This cannot be undone.`)) return;
-        const resp = await fetch("/api/file/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }) });
-        const data = await resp.json();
-        if (!data.ok) alert(data.error || "Delete failed");
-        else refreshFileTree();
-      } else if (action === "rename") {
-        const newName = prompt("New name:", path.split("/").pop());
-        if (!newName) return;
-        const resp = await fetch("/api/file/rename", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path, new_name: newName }) });
-        const data = await resp.json();
-        if (!data.ok) alert(data.error || "Rename failed");
-        else refreshFileTree();
-      } else if (action === "duplicate") {
-        const resp = await fetch("/api/file/duplicate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }) });
-        const data = await resp.json();
-        if (!data.ok) alert(data.error || "Duplicate failed");
-        else refreshFileTree();
+        await performDelete(selected);
       }
     } catch (err) {
       console.error("context action", err);
@@ -168,43 +461,87 @@ function fileIcon(item) {
   return "📄";
 }
 
-function buildTree(items, container, level) {
+function buildTree(items, container, level, basePath = "") {
   for (const item of items) {
+    const fallbackPath = basePath ? `${basePath}/${item.name}` : item.name;
+    const itemPath = normalizePath(item.path || fallbackPath);
     if (item.type === "directory") {
       const row = document.createElement("div");
       row.className = "tree-item";
+      row.dataset.type = "directory";
+      row.dataset.path = itemPath;
       row.style.paddingLeft = `${(level * 14) + 6}px`;
       row.innerHTML = `<span class='tree-toggle'>▶</span><span class='tree-icon'>📁</span><span class='tree-name'>${esc(item.name)}</span>`;
       container.appendChild(row);
+      if (itemPath) __fileRowsByPath.set(itemPath, row);
+      if (isProtectedPath(itemPath)) row.classList.add("is-protected");
 
       const kids = document.createElement("div");
       kids.className = "tree-children";
-      buildTree(item.children || [], kids, level + 1);
+      buildTree(item.children || [], kids, level + 1, itemPath);
       container.appendChild(kids);
 
-      row.addEventListener("click", () => {
+      row.addEventListener("click", (event) => {
+        if (!itemPath) return;
+        if (event.metaKey || event.ctrlKey) toggleSelection(itemPath);
+        else selectSingle(itemPath);
+        if (event.metaKey || event.ctrlKey || event.shiftKey) return;
         const open = kids.classList.toggle("open");
         row.querySelector(".tree-toggle").classList.toggle("open", open);
         row.querySelector(".tree-icon").textContent = open ? "📂" : "📁";
       });
+
+      row.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        if (itemPath && !__selectedFilePaths.has(itemPath)) {
+          selectSingle(itemPath);
+        }
+        const menu = createContextMenu();
+        menu.dataset.path = itemPath;
+        menu.dataset.isStructure = "false";
+        menu.dataset.paths = JSON.stringify(currentSelection());
+        menu.dataset.pasteTarget = itemPath;
+        updateContextMenuState(menu);
+        const x = Math.min(window.innerWidth - 160, event.pageX);
+        const y = Math.min(window.innerHeight - 160, event.pageY);
+        menu.style.left = `${x}px`;
+        menu.style.top = `${y}px`;
+        menu.style.display = "block";
+      });
     } else {
       const row = document.createElement("div");
       row.className = "tree-item";
+      row.dataset.path = itemPath;
+      row.dataset.type = "file";
       row.style.paddingLeft = `${(level * 14) + 20}px`;
       const icon = fileIcon(item);
       row.innerHTML = `<span class='tree-icon'>${icon}</span><span class='tree-name'>${esc(item.name)}</span>`
         + `<span class='tree-size'>${fmtSize(item.size)}</span>`;
+      row.dataset.isStructure = String(isStructureItem(item));
+      if (itemPath) __fileRowsByPath.set(itemPath, row);
+      if (isProtectedPath(itemPath)) row.classList.add("is-protected");
+
+      row.addEventListener("click", (event) => {
+        if (!itemPath) return;
+        if (event.metaKey || event.ctrlKey) toggleSelection(itemPath);
+        else selectSingle(itemPath);
+      });
+
       if (isStructureItem(item)) {
-        const canDrag = Boolean(item && item.path);
+        const canDrag = Boolean(itemPath);
         if (canDrag) {
           row.classList.add("is-draggable");
           row.draggable = true;
-          row.title = "Double-click to open in viewport. Drag to add into layers.";
-          row.addEventListener("dblclick", () => loadStructure(item.path));
+          row.title = "Double-click to open in viewport. Drag to add into layers. Shift+drag to box-select files.";
+          row.addEventListener("dblclick", () => loadStructure(itemPath));
           row.addEventListener("dragstart", (event) => {
+            if (event.shiftKey || __marqueeState) {
+              event.preventDefault();
+              return;
+            }
             event.dataTransfer.effectAllowed = "copy";
-            event.dataTransfer.setData("application/x-atomsculptor-structure-path", item.path);
-            event.dataTransfer.setData("text/plain", item.path);
+            event.dataTransfer.setData("application/x-atomsculptor-structure-path", itemPath);
+            event.dataTransfer.setData("text/plain", itemPath);
           });
           row.style.cursor = "pointer";
         } else {
@@ -214,9 +551,15 @@ function buildTree(items, container, level) {
       // Right-click context menu for file operations (apply to all files)
       row.addEventListener("contextmenu", (event) => {
         event.preventDefault();
+        if (itemPath && !__selectedFilePaths.has(itemPath)) {
+          selectSingle(itemPath);
+        }
         const menu = createContextMenu();
-        menu.dataset.path = item.path;
+        menu.dataset.path = itemPath;
         menu.dataset.isStructure = String(isStructureItem(item));
+        menu.dataset.paths = JSON.stringify(currentSelection());
+        menu.dataset.pasteTarget = parentDir(itemPath);
+        updateContextMenuState(menu);
         // Position and show
         const x = Math.min(window.innerWidth - 160, event.pageX);
         const y = Math.min(window.innerHeight - 160, event.pageY);
@@ -233,14 +576,18 @@ export function renderFiles(tree) {
   const container = $("#file-tree");
   const empty = $("#file-empty");
   container.innerHTML = "";
+  __fileRowsByPath.clear();
   if (!tree || !tree.length) {
+    setSelection([]);
     empty.style.display = "block";
     container.style.display = "none";
     return;
   }
   empty.style.display = "none";
   container.style.display = "block";
-  buildTree(tree, container, 0);
+  buildTree(tree, container, 0, "");
+  const keep = currentSelection().filter((p) => __fileRowsByPath.has(p));
+  setSelection(keep);
 }
 
 export { refreshFileTree };

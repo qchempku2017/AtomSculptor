@@ -22,6 +22,10 @@ from agent_team.tools.memory_tools import (
     write_notes,
     rewrite_notes,
 )
+from agent_team.tools.ddgs_search_tools import (
+    web_search,
+    web_search_news,
+)
 from settings import settings
 from agent_team.agents.structure_builder import structure_builder
 from agent_team.agents.mp_searcher import mp_searcher
@@ -96,6 +100,8 @@ planner = Agent(
         is_plan_finished,
         write_notes,
         rewrite_notes,
+        web_search,
+        web_search_news,
     ],
     sub_agents=[structure_builder, mp_searcher],
     output_key="last_planner_result",

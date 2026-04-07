@@ -17,6 +17,7 @@ import {
   isAtomIdInSelectedLayers,
   redoStructureEdit,
   saveStructure,
+  setSelectedAtomsSymbol,
   undoStructureEdit,
   updateStatusBar,
   LAYERS_CHANGED_EVENT,
@@ -24,38 +25,156 @@ import {
 import { updateGizmo, nudgeTransform, isGizmoActive } from "./gizmo.js";
 import { closeAllPanels, toggleAddPanel } from "./panels.js";
 import { toggleSelectionPanel } from "./panels.js";
+import { PERIODIC_TABLE_ROWS, buildPeriodicRow } from "./elements.js";
+import { elemColor, elemTextColor } from "./viewer.js";
 
 const TRANSFORM_MODES = new Set(["translate", "rotate", "scale"]);
+let atomInfoSymbolPickerWired = false;
+
+function createInfoSymbolButton(elementSymbol) {
+  const button = document.createElement("button");
+  button.className = "pt-elem-btn";
+  button.type = "button";
+  button.textContent = elementSymbol;
+  button.title = elementSymbol;
+  button.dataset.element = elementSymbol;
+  // Use element color as button background and choose contrasting text color
+  button.style.background = elemColor(elementSymbol);
+  button.style.color = elemTextColor(elementSymbol);
+  button.addEventListener("click", () => {
+    const changed = setSelectedAtomsSymbol(elementSymbol);
+    if (changed) {
+      updateGizmo();
+    }
+    const picker = $("#ai-symbol-picker");
+    if (picker) picker.style.display = "none";
+  });
+  return button;
+}
+
+function buildAtomInfoSymbolPicker() {
+  const table = $("#ai-periodic-table");
+  if (!table) return;
+  if (table.childElementCount > 0) return;
+
+  table.innerHTML = "";
+  for (let rowIndex = 0; rowIndex < PERIODIC_TABLE_ROWS.length; rowIndex += 1) {
+    const rowEntries = PERIODIC_TABLE_ROWS[rowIndex];
+    const rowElement = document.createElement("div");
+    rowElement.className = "pt-row";
+
+    if (rowIndex >= 7) {
+      rowElement.classList.add("pt-row-series");
+      if (rowIndex === 7) rowElement.classList.add("pt-row-series-start");
+
+      const row = buildPeriodicRow(rowEntries);
+      for (const elementSymbol of row) {
+        if (!elementSymbol) {
+          const spacer = document.createElement("div");
+          spacer.className = "pt-spacer";
+          rowElement.appendChild(spacer);
+          continue;
+        }
+        rowElement.appendChild(createInfoSymbolButton(elementSymbol));
+      }
+      table.appendChild(rowElement);
+      continue;
+    }
+
+    const row = buildPeriodicRow(rowEntries);
+    for (const elementSymbol of row) {
+      if (!elementSymbol) {
+        const spacer = document.createElement("div");
+        spacer.className = "pt-spacer";
+        rowElement.appendChild(spacer);
+        continue;
+      }
+      rowElement.appendChild(createInfoSymbolButton(elementSymbol));
+    }
+
+    table.appendChild(rowElement);
+  }
+}
+
+function wireAtomInfoSymbolPicker() {
+  if (atomInfoSymbolPickerWired) return;
+  atomInfoSymbolPickerWired = true;
+
+  const changeButton = $("#ai-change-element");
+  const picker = $("#ai-symbol-picker");
+  const info = $("#atom-info");
+  if (!changeButton || !picker || !info) return;
+
+  buildAtomInfoSymbolPicker();
+
+  changeButton.addEventListener("click", (e) => {
+    if (!S.selected || S.selected.size === 0) return;
+    e.stopPropagation();
+    const isHidden = picker.style.display === "none";
+    if (isHidden) {
+      // When showing the picker, mark the current atom symbol as selected
+      // (only within the atom-info picker) so it reflects edits made earlier.
+      let activeSymbol = null;
+      if (S.selected && S.selected.size > 0) {
+        const id = [...S.selected][0];
+        const atom = S.atoms.find((a) => a.id === id);
+        if (atom) activeSymbol = atom.symbol;
+      } else if (S.hovered !== null) {
+        const atom = S.atoms.find((a) => a.id === S.hovered);
+        if (atom) activeSymbol = atom.symbol;
+      }
+      const table = $("#ai-periodic-table");
+      if (table) {
+        table.querySelectorAll(".pt-elem-btn").forEach((button) => {
+          button.classList.toggle("selected", !!activeSymbol && button.dataset.element === activeSymbol);
+        });
+      }
+    }
+    picker.style.display = isHidden ? "block" : "none";
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!picker || picker.style.display === "none") return;
+    if (!info.contains(e.target)) {
+      picker.style.display = "none";
+    }
+  });
+}
+
+// ── Selection helpers ───────────────────────────────────────────────────────
+
+/** Broadcast the current selection state to the gizmo, status bar, and layers panel. */
+function notifySelectionChanged() {
+  updateAtomVisuals();
+  updateGizmo();
+  updateStatusBar();
+  document.dispatchEvent(new CustomEvent(LAYERS_CHANGED_EVENT));
+}
+
+/**
+ * Clear the selection unless the selection layer is hidden and there is an
+ * active selection (to avoid losing hidden atoms).
+ * Returns `true` when the selection was actually cleared.
+ */
+function clearSelectionIfAllowed() {
+  if (S.selectionLayerHidden && S.selected && S.selected.size > 0) return false;
+  S.selected.clear();
+  notifySelectionChanged();
+  return true;
+}
 
 // ── Select ──────────────────────────────────────────────────────────────────
 
 function onSelectClick(e) {
   const hit = raycastAtoms(e);
   if (!hit) {
-    if (!e.shiftKey) {
-      // When selection overlay is hidden, do not clear the selection on empty-clicks
-      if (!(S.selectionLayerHidden && S.selected && S.selected.size > 0)) {
-        S.selected.clear();
-        updateAtomVisuals();
-        updateGizmo();
-        updateStatusBar();
-        document.dispatchEvent(new CustomEvent(LAYERS_CHANGED_EVENT));
-      }
-    }
+    if (!e.shiftKey) clearSelectionIfAllowed();
     return;
   }
 
   const id = atomIdFromMesh(hit.object);
   if (!isAtomIdInSelectedLayers(id)) {
-    if (!e.shiftKey) {
-      if (!(S.selectionLayerHidden && S.selected && S.selected.size > 0)) {
-        S.selected.clear();
-        updateAtomVisuals();
-        updateGizmo();
-        updateStatusBar();
-        document.dispatchEvent(new CustomEvent(LAYERS_CHANGED_EVENT));
-      }
-    }
+    if (!e.shiftKey) clearSelectionIfAllowed();
     return;
   }
 
@@ -69,10 +188,7 @@ function onSelectClick(e) {
     S.selected.add(id);
   }
 
-  updateAtomVisuals();
-  updateGizmo();
-  updateStatusBar();
-  document.dispatchEvent(new CustomEvent(LAYERS_CHANGED_EVENT));
+  notifySelectionChanged();
 }
 
 // ── Delete ──────────────────────────────────────────────────────────────────
@@ -167,10 +283,7 @@ function onBoxEnd(e) {
   S.boxStart = null;
   $("#box-select-overlay").style.display = "none";
   setOrbitEnabled(true);
-  updateAtomVisuals();
-  updateGizmo();
-  updateStatusBar();
-  document.dispatchEvent(new CustomEvent(LAYERS_CHANGED_EVENT));
+  notifySelectionChanged();
   return true;
 }
 
@@ -334,6 +447,8 @@ export function setMode(mode) {
 }
 
 export function wireToolbar() {
+  wireAtomInfoSymbolPicker();
+
   document.querySelectorAll(".tb-btn[data-mode]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const mode = btn.dataset.mode;
@@ -423,10 +538,7 @@ export function wireKeyboardShortcuts() {
     }
     if (e.key === "Escape") {
       S.selected.clear();
-      updateAtomVisuals();
-      updateGizmo();
-      updateStatusBar();
-      document.dispatchEvent(new CustomEvent(LAYERS_CHANGED_EVENT));
+      notifySelectionChanged();
       return;
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
@@ -437,10 +549,7 @@ export function wireKeyboardShortcuts() {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
       e.preventDefault();
       S.selected = new Set(S.atoms.filter((a) => isAtomIdInSelectedLayers(a.id)).map((a) => a.id));
-      updateAtomVisuals();
-      updateGizmo();
-      updateStatusBar();
-      document.dispatchEvent(new CustomEvent(LAYERS_CHANGED_EVENT));
+      notifySelectionChanged();
     }
   });
 }

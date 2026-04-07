@@ -15,7 +15,7 @@ dependencies = [
     "pymatgen>=2025.10.7",
     "ase>=3.26.0",
     "rdkit>=2025.9.6",
-    "duckduckgo_search>=8.1.1",
+    "ddgs>=9.12.0",
     # code-graph-rag dependencies
     "loguru>=0.7.3",
     "pydantic-ai-slim[google,openai,vertexai]>=0.2.18",

@@ -29,6 +29,20 @@ export function elemColor(sym) {
   return ELEM_COLOR[sym] || ELEM_COLOR.default;
 }
 
+// Return a readable text color (#000 or #fff) for the given element symbol
+// based on the element background color for sufficient contrast.
+export function elemTextColor(sym) {
+  const hex = elemColor(sym) || ELEM_COLOR.default || "#ffffff";
+  let c = String(hex).replace("#", "").trim();
+  if (c.length === 3) c = c.split("").map((ch) => ch + ch).join("");
+  if (c.length !== 6) return "#000";
+  const r = parseInt(c.substring(0, 2), 16);
+  const g = parseInt(c.substring(2, 4), 16);
+  const b = parseInt(c.substring(4, 6), 16);
+  // YIQ formula to decide between black or white text for contrast
+  const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+  return yiq >= 128 ? "#000" : "#fff";
+}
 export function elemRadius(sym) {
   return (ELEM_RADIUS[sym] || ELEM_RADIUS.default) * 0.55;
 }
@@ -607,18 +621,48 @@ export function updateAtomVisuals(forceFull = false) {
 
 function updateAtomInfoPanel() {
   const info = $("#atom-info");
+  const changeButton = $("#ai-change-element");
+  const symbolPicker = $("#ai-symbol-picker");
   if (S.selected.size === 0 && S.hovered === null) {
+    if (symbolPicker) symbolPicker.style.display = "none";
     info.style.display = "none";
     return;
   }
 
   info.style.display = "block";
+  if (changeButton) {
+    changeButton.style.display = S.selected.size > 0 ? "block" : "none";
+  }
+  if (S.selected.size === 0 && symbolPicker) {
+    symbolPicker.style.display = "none";
+  }
   if (S.selected.size > 1) {
+    let sx = 0;
+    let sy = 0;
+    let sz = 0;
+    let count = 0;
+    for (const id of S.selected) {
+      const idx = atomIndexById.get(id);
+      if (idx === undefined) continue;
+      const atom = S.atoms[idx];
+      if (!atom) continue;
+      sx += atom.x;
+      sy += atom.y;
+      sz += atom.z;
+      count += 1;
+    }
+
     $("#ai-title").textContent = "Selection";
     $("#ai-sym").textContent = "-";
-    $("#ai-x").textContent = "-";
-    $("#ai-y").textContent = "-";
-    $("#ai-z").textContent = "-";
+    if (count > 0) {
+      $("#ai-x").textContent = `${(sx / count).toFixed(4)} Å`;
+      $("#ai-y").textContent = `${(sy / count).toFixed(4)} Å`;
+      $("#ai-z").textContent = `${(sz / count).toFixed(4)} Å`;
+    } else {
+      $("#ai-x").textContent = "-";
+      $("#ai-y").textContent = "-";
+      $("#ai-z").textContent = "-";
+    }
     $("#ai-count").style.display = "block";
     $("#ai-count").textContent = `${S.selected.size} atoms selected`;
     return;

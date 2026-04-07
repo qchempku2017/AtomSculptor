@@ -36,3 +36,54 @@ export function jsonPretty(obj) {
     return String(obj);
   }
 }
+
+/* ── Shared panel utilities ──────────────────────────────────────────────── */
+
+export function showError(selector, message) {
+  const el = $(selector);
+  el.textContent = message;
+  el.classList.add("show");
+}
+
+export function clearError(selector) {
+  const el = $(selector);
+  el.classList.remove("show");
+  el.textContent = "";
+}
+
+/* ── 3×3 matrix I/O utilities ────────────────────────────────────────────── */
+
+export function setMatrixInputs(prefix, matrix) {
+  for (let i = 0; i < 3; i += 1) {
+    for (let j = 0; j < 3; j += 1) {
+      $(`#${prefix}${i}${j}`).value = Number(matrix[i][j]).toFixed(3);
+    }
+  }
+}
+
+export function readMatrixInputs(prefix) {
+  const m = [];
+  for (let i = 0; i < 3; i += 1) {
+    m[i] = [];
+    for (let j = 0; j < 3; j += 1) {
+      const v = parseFloat($(`#${prefix}${i}${j}`).value);
+      if (Number.isNaN(v)) throw new Error("Matrix contains invalid numbers.");
+      m[i][j] = v;
+    }
+  }
+  return m;
+}
+
+export function multiplyMatrices(a, b) {
+  const out = [];
+  for (let i = 0; i < 3; i += 1) {
+    out[i] = [];
+    for (let j = 0; j < 3; j += 1) {
+      out[i][j] = 0;
+      for (let k = 0; k < 3; k += 1) {
+        out[i][j] += a[i][k] * b[k][j];
+      }
+    }
+  }
+  return out;
+}

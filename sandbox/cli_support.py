@@ -103,6 +103,91 @@ def coerce_cli_value(raw_value: str, annotation: Any) -> Any:
     return parse_json_or_raw(raw_value)
 
 
+_SECTION_HEADERS = {"args:", "arguments:", "parameters:", "returns:", "return:", "raises:", "note:", "notes:"}
+
+
+def _parse_param_docs(doc: str, param_names: set[str]) -> dict[str, str]:
+    """Extract per-parameter descriptions from a docstring.
+
+    Recognises two styles:
+      Google-style ``Args:`` / ``Parameters:`` sections with indented entries:
+          param_name: description text
+      Bullet-style lines (with optional leading dash):
+          - param_name: description text
+          - param_name is description text
+    """
+    result: dict[str, str] = {}
+    lines = doc.splitlines()
+    in_args_section = False
+
+    for line in lines:
+        lower = line.strip().lower()
+        if lower in _SECTION_HEADERS:
+            in_args_section = lower in {"args:", "arguments:", "parameters:"}
+            continue
+        if in_args_section and line.strip() == "":
+            in_args_section = False
+            continue
+
+        if in_args_section:
+            # Google-style:  "    param_name: description"
+            # or with bullet: "    - param_name: description"
+            stripped = line.strip().lstrip("- ").strip()
+            for name in param_names:
+                if stripped.startswith(name + ":"):
+                    result[name] = stripped[len(name) + 1:].strip()
+                    break
+        else:
+            # Bullet-style: "- param_name: ..." or "- param_name is ..."
+            stripped = line.strip().lstrip("- ").strip()
+            for name in param_names:
+                if stripped.startswith(name + ":"):
+                    result[name] = stripped[len(name) + 1:].strip()
+                    break
+                if stripped.startswith(name + " is "):
+                    result[name] = stripped[len(name) + 4:].strip()
+                    break
+
+    return result
+
+
+def _strip_param_lines(doc: str, param_names: set[str]) -> str:
+    """Remove per-parameter lines and section headers from a docstring.
+
+    Strips:
+    - Google-style section blocks (Args:, Parameters:, Returns:, etc.) and all
+      their indented content.
+    - Bullet-style param lines outside sections that match a known param name.
+
+    The result is suitable for use as a command description.
+    """
+    lines = doc.splitlines()
+    result: list[str] = []
+    in_section = False
+
+    for line in lines:
+        lower = line.strip().lower()
+        if lower in _SECTION_HEADERS:
+            in_section = True
+            continue
+        if in_section:
+            if line.strip() == "":
+                in_section = False
+            continue  # skip all content inside any section block
+
+        # Outside sections: skip bullet-style param lines
+        bare = line.strip().lstrip("- ").strip()
+        if any(bare.startswith(name + ":") or bare.startswith(name + " is ") for name in param_names):
+            continue
+
+        result.append(line)
+
+    # Strip trailing blank lines
+    while result and not result[-1].strip():
+        result.pop()
+    return "\n".join(result)
+
+
 def build_cli_parser(
     *,
     prog: str,
@@ -118,21 +203,29 @@ def build_cli_parser(
 
     for tool_name, function in tool_functions.items():
         tool_doc = inspect.getdoc(function) or ""
+        sig = inspect.signature(function)
+        param_docs = _parse_param_docs(tool_doc, set(sig.parameters))
+        clean_doc = _strip_param_lines(tool_doc, set(sig.parameters))
+
         tool_parser = subparsers.add_parser(
             tool_name,
-            help=tool_doc.splitlines()[0] if tool_doc else tool_name,
-            description=tool_doc,
+            help=clean_doc.splitlines()[0] if clean_doc else tool_name,
+            description=clean_doc,
             formatter_class=argparse.RawTextHelpFormatter,
         )
 
-        for parameter in inspect.signature(function).parameters.values():
+        sig = inspect.signature(function)
+        param_docs = _parse_param_docs(tool_doc, set(sig.parameters))
+
+        for parameter in sig.parameters.values():
             cli_flag = f"--{parameter.name.replace('_', '-')}"
             cli_type = annotation_to_cli_type(parameter.annotation)
-            help_text = f"{parameter.name} ({cli_type})"
+            desc = param_docs.get(parameter.name, "")
+            help_text = f"({cli_type}) {desc}".rstrip() if desc else f"({cli_type})"
             if parameter.default is not inspect._empty:
-                help_text += f". Default: {parameter.default!r}"
+                help_text += f"  [default: {parameter.default!r}]"
             if cli_type == "JSON":
-                help_text += ". Pass JSON, for example '[1, 0, 0]'"
+                help_text += "  e.g. '[1, 0, 0]'"
 
             tool_parser.add_argument(
                 cli_flag,
@@ -146,8 +239,8 @@ def build_cli_parser(
             f"  python3 {prog} {tool_name} --help\n"
             f"  python3 {prog} {tool_name} "
             + " ".join(
-                f"--{parameter.name.replace('_', '-')} <{annotation_to_cli_type(parameter.annotation)}>"
-                for parameter in inspect.signature(function).parameters.values()
+                f"--{p.name.replace('_', '-')} <{annotation_to_cli_type(p.annotation)}>"
+                for p in sig.parameters.values()
             )
         )
 

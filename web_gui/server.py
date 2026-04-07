@@ -23,8 +23,35 @@ from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .helpers import STATIC_DIR
+
+
+class NoCacheJSMiddleware:
+    """Force revalidation for all /static/js/ responses so stale module
+    caches never cause 'export not found' errors in the browser."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and scope.get("path", "").startswith("/static/js/"):
+            async def send_with_no_cache(message):
+                if message["type"] == "http.response.start":
+                    headers = list(message.get("headers", []))
+                    headers = [
+                        (k, v) for k, v in headers
+                        if k.lower() not in (b"cache-control", b"expires", b"pragma")
+                    ]
+                    headers.append((b"cache-control", b"no-cache"))
+                    message = {**message, "headers": headers}
+                await send(message)
+            await self.app(scope, receive, send_with_no_cache)
+        else:
+            await self.app(scope, receive, send)
+
+
 from .routes import (
     index,
     api_todo_flow,
@@ -36,10 +63,16 @@ from .routes import (
     api_structure_export,
     api_structure_build_surface,
     api_structure_build_supercell,
+    api_structure_add_molecule,
     api_file_delete,
+    api_file_delete_many,
     api_file_rename,
     api_file_duplicate,
+    api_file_paste,
     api_file_upload,
+    api_sessions_list,
+    api_session_rename,
+    api_session_delete,
 )
 from .websocket_handler import ws_chat
 
@@ -60,11 +93,17 @@ app = Starlette(
         Route("/api/structure/build-supercell", api_structure_build_supercell, methods=["POST"]),
         Route("/api/structure/build-supercell/", api_structure_build_supercell, methods=["POST"]),
         Route("/api/structure/build_supercell", api_structure_build_supercell, methods=["POST"]),
+        Route("/api/structure/add-molecule", api_structure_add_molecule, methods=["POST"]),
         Route("/api/structure", api_structure, methods=["GET"]),
         Route("/api/file/delete", api_file_delete, methods=["POST"]),
+        Route("/api/file/delete-many", api_file_delete_many, methods=["POST"]),
         Route("/api/file/rename", api_file_rename, methods=["POST"]),
         Route("/api/file/duplicate", api_file_duplicate, methods=["POST"]),
+        Route("/api/file/paste", api_file_paste, methods=["POST"]),
         Route("/api/file/upload", api_file_upload, methods=["POST"]),
+            Route("/api/sessions", api_sessions_list, methods=["GET"]),
+            Route("/api/sessions/rename", api_session_rename, methods=["PATCH"]),
+            Route("/api/sessions/delete", api_session_delete, methods=["DELETE"]),
         WebSocketRoute("/ws", ws_chat),
         Mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static"),
     ],
@@ -75,6 +114,7 @@ app = Starlette(
             allow_methods=["*"],
             allow_headers=["*"],
         ),
+        Middleware(NoCacheJSMiddleware),
     ],
 )
 

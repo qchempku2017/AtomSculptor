@@ -1,130 +1,130 @@
 #!/usr/bin/env bash
-# Installation script for AtomSculptor with code-graph-rag integration
+# One-step installation script for AtomSculptor
+#
+# Usage:
+#   ./install.sh              # default: core + web extras
+#   ./install.sh --all        # core + web + treesitter-full + dev
+#   ./install.sh --dev        # core + web + dev extras
+#   ./install.sh --no-venv    # skip venv creation (use current environment)
 
 set -euo pipefail
 
+INSTALL_ALL=false
+INSTALL_DEV=false
+SKIP_VENV=false
+
+for arg in "$@"; do
+    case "$arg" in
+        --all)      INSTALL_ALL=true ;;
+        --dev)      INSTALL_DEV=true ;;
+        --no-venv)  SKIP_VENV=true ;;
+        -h|--help)
+            echo "Usage: ./install.sh [--all] [--dev] [--no-venv]"
+            echo "  --all      Install all optional extras (web, dev, treesitter-full)"
+            echo "  --dev      Include development dependencies"
+            echo "  --no-venv  Skip virtual environment creation"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $arg (try --help)"
+            exit 1
+            ;;
+    esac
+done
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
 echo "=========================================="
-echo "AtomSculptor Installation"
+echo "  AtomSculptor Installation"
 echo "=========================================="
 
-# Check Python version
-echo "Checking Python availability and version..."
+# ── 1. Check Python ──────────────────────────────────────────────────────────
+echo ""
+echo "[1/5] Checking Python..."
 if ! command -v python3 > /dev/null 2>&1; then
     echo "ERROR: python3 not found in PATH"
     exit 1
 fi
 PYTHON_BIN=$(command -v python3)
-PYTHON_VERSION=$($PYTHON_BIN -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+PYTHON_VERSION=$("$PYTHON_BIN" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
 REQUIRED_VERSION="3.12"
 
 if [ "$(printf '%s\n' "$REQUIRED_VERSION" "$PYTHON_VERSION" | sort -V | head -n1)" != "$REQUIRED_VERSION" ]; then
-    echo "ERROR: Python $REQUIRED_VERSION or higher is required (found: $PYTHON_VERSION)"
+    echo "ERROR: Python >= $REQUIRED_VERSION required (found $PYTHON_VERSION)"
     exit 1
 fi
-echo "✓ Python version OK: $PYTHON_VERSION (using $PYTHON_BIN)"
+echo "  ✓ Python $PYTHON_VERSION"
 
-# Install main dependencies
+# ── 2. Virtual environment ───────────────────────────────────────────────────
 echo ""
-echo "Installing AtomSculptor dependencies..."
-"$PYTHON_BIN" -m pip install -e .
-
-# quickly verify that the local code_graph_rag package is importable
-python3 - <<'PYCODE'
-import sys
-try:
-    import code_graph_rag
-    print("✓ code_graph_rag importable")
-except ImportError:
-    print("⚠️  code_graph_rag not importable – check pyproject.toml package configuration")
-    sys.exit(1)
-PYCODE
-
-# Helper to ask yes/no, respects CI/non-interactive environment
-ask_yes_no() {
-    local prompt="$1"
-    if [ "${CI:-}" = "true" ] || [ "${NONINTERACTIVE:-}" = "true" ] || [ "${YES:-}" = "true" ]; then
-        return 1  # default to 'no' in CI/non-interactive
+echo "[2/5] Setting up virtual environment..."
+if [ "$SKIP_VENV" = true ]; then
+    echo "  Skipped (--no-venv)"
+    PIP_BIN="$PYTHON_BIN -m pip"
+else
+    if [ ! -d .venv ]; then
+        "$PYTHON_BIN" -m venv .venv
+        echo "  ✓ Created .venv"
+    else
+        echo "  ✓ .venv already exists"
     fi
-    read -p "$prompt (y/n) " -n 1 -r
-    echo
-    [[ $REPLY =~ ^[Yy]$ ]]
-}
-
-echo ""
-if ask_yes_no "Install full tree-sitter language support?"; then
-    echo "Installing tree-sitter language parsers..."
-    "$PYTHON_BIN" -m pip install -e ".[treesitter-full]"
+    # shellcheck disable=SC1091
+    source .venv/bin/activate
+    PIP_BIN="pip"
 fi
 
+# ── 3. Python dependencies ───────────────────────────────────────────────────
 echo ""
-if ask_yes_no "Install development dependencies?"; then
-    echo "Installing development dependencies..."
-    "$PYTHON_BIN" -m pip install -e ".[dev]"
+echo "[3/5] Installing Python dependencies..."
+if [ "$INSTALL_ALL" = true ]; then
+    $PIP_BIN install -e ".[web,dev,treesitter-full]"
+elif [ "$INSTALL_DEV" = true ]; then
+    $PIP_BIN install -e ".[web,dev]"
+else
+    $PIP_BIN install -e ".[web]"
+fi
+echo "  ✓ Python packages installed"
+
+# ── 4. Frontend dependencies ─────────────────────────────────────────────────
+echo ""
+echo "[4/5] Installing frontend dependencies..."
+if command -v npm > /dev/null 2>&1; then
+    (cd web_gui/static && npm ci --silent 2>/dev/null || npm install --silent)
+    echo "  ✓ npm packages installed"
+else
+    echo "  ⚠  npm not found – skipping frontend install"
+    echo "     Install Node.js 18+ and run: cd web_gui/static && npm ci"
 fi
 
-# Check for .env file
+# ── 5. Environment file ──────────────────────────────────────────────────────
 echo ""
+echo "[5/5] Checking .env..."
 if [ ! -f .env ]; then
-    if [ ! -f .env.example ]; then
-        echo "⚠️  .env.example not found; create .env manually"
-    else
-        echo "Creating .env file from template..."
+    if [ -f .env.example ]; then
         cp .env.example .env
-        echo "✓ Created .env file"
-        echo "⚠️  Please edit .env and add your API keys"
-    fi
-else
-    echo "✓ .env file already exists"
-fi
-
-# Check for Docker
-echo ""
-echo "Checking for Docker..."
-    if command -v docker &> /dev/null; then
-    echo "✓ Docker is installed"
-    
-    # Check if Memgraph is running
-    if docker ps | grep -q memgraph; then
-        echo "✓ Memgraph is already running"
+        echo "  ✓ Created .env from .env.example"
+        echo "  ⚠  Edit .env and add your API keys"
     else
-        echo ""
-        read -p "Start Memgraph with Docker? (y/n) " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            echo "Starting Memgraph..."
-            docker run -d --name memgraph \
-                -p 7687:7687 \
-                -p 7444:7444 \
-                -p 3000:3000 \
-                -v mg_lib:/var/lib/memgraph \
-                memgraph/memgraph-platform
-            
-            echo "✓ Memgraph started"
-            echo "  - Bolt port: 7687"
-            echo "  - HTTP port: 7444"
-            echo "  - Lab UI: http://localhost:3000"
-        fi
+        echo "  ⚠  No .env.example found – create .env manually"
     fi
 else
-    echo "⚠️  Docker not found"
-    echo "   To use code-graph-rag features, install Docker and run:"
-    echo "   docker run -d -p 7687:7687 -p 7444:7444 -p 3000:3000 memgraph/memgraph-platform"
+    echo "  ✓ .env already exists"
 fi
 
+# ── Done ─────────────────────────────────────────────────────────────────────
 echo ""
 echo "=========================================="
-echo "Installation Complete!"
+echo "  ✓ Installation complete!"
 echo "=========================================="
 echo ""
-echo "Next steps:"
-echo "1. Edit .env file and add your API keys"
-echo "2. Start Memgraph if not already running (see above)"
-echo "3. Run your first code analysis:"
-echo "   python -c 'from agent_team.tools.code_graph_tools import ingest_codebase; print(ingest_codebase())'"
-echo "   # to wipe existing graph data first, pass clear_existing=True"
-echo "   python -c 'from agent_team.tools.code_graph_tools import ingest_codebase; print(ingest_codebase(clear_existing=True))'"
+echo "Quick start:"
+if [ "$SKIP_VENV" = false ]; then
+    echo "  source .venv/bin/activate"
+fi
+echo "  python main.py --web          # web GUI on http://localhost:8000"
+echo "  python main.py                # ADK CLI mode"
 echo ""
-echo "For more information, see:"
-echo "  - CODE_GRAPH_INTEGRATION.md - Integration guide"
-echo "  - README.md - Main documentation"
+echo "Optional: start Memgraph for code-graph-rag features:"
+echo "  docker compose up -d"
 echo ""
