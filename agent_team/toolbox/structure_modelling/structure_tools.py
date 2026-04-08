@@ -412,6 +412,10 @@ def check_close_atoms(folder: str, file_name: str, tolerance: float = -0.5) -> d
             "min_distance_angstrom": round(float(min_dist), 3),
         })
     num_close = len(close_pairs)
+    # if number of close pairs is large, showing only a summary, and top 10 close pairs
+    if num_close > 10:
+        close_pairs = close_pairs[:10]
+        close_pairs.append({"note": f"{num_close - 10} more pairs not shown"})
     return {
         "file": file_name,
         "number_of_detected_close_pairs": num_close,
