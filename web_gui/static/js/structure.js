@@ -855,13 +855,28 @@ export async function expandSelectionByRadius(radius) {
   const selAtoms = S.atoms.filter((a) => sel.has(a.id));
   if (!selAtoms.length) return { ok: false, error: 'No atoms selected to expand from' };
   const r2 = radius * radius;
+  const cell = Array.isArray(S.cell) && S.cell.length === 3 ? S.cell : null;
+  const nxRange = (cell && S.pbc[0]) ? [-1, 0, 1] : [0];
+  const nyRange = (cell && S.pbc[1]) ? [-1, 0, 1] : [0];
+  const nzRange = (cell && S.pbc[2]) ? [-1, 0, 1] : [0];
   for (const atom of S.atoms) {
     if (!S.selectedLayerIds.has(atom.layerId)) continue;
     if (sel.has(atom.id)) continue;
-    for (const s of selAtoms) {
-      const dx = atom.x - s.x; const dy = atom.y - s.y; const dz = atom.z - s.z;
-      if ((dx*dx + dy*dy + dz*dz) <= r2) { sel.add(atom.id); break; }
+    let found = false;
+    outer: for (const s of selAtoms) {
+      for (const nx of nxRange) {
+        for (const ny of nyRange) {
+          for (const nz of nzRange) {
+            const ox = cell ? nx * cell[0][0] + ny * cell[1][0] + nz * cell[2][0] : 0;
+            const oy = cell ? nx * cell[0][1] + ny * cell[1][1] + nz * cell[2][1] : 0;
+            const oz = cell ? nx * cell[0][2] + ny * cell[1][2] + nz * cell[2][2] : 0;
+            const dx = atom.x - s.x + ox; const dy = atom.y - s.y + oy; const dz = atom.z - s.z + oz;
+            if ((dx*dx + dy*dy + dz*dz) <= r2) { found = true; break outer; }
+          }
+        }
+      }
     }
+    if (found) sel.add(atom.id);
   }
   S.selected = sel;
   enforceLayerSelectionConstraints();
